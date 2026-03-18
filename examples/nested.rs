@@ -2,7 +2,7 @@ use std::io::{self, Write};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use eye_delcare::{Component, InlineRenderer, NodeId, Tracked, VStack};
+use eye_declare::{Component, InlineRenderer, NodeId, Tracked, VStack};
 use ratatui_core::{
     buffer::Buffer,
     layout::Rect,

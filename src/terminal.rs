@@ -13,7 +13,7 @@ use crate::node::NodeId;
 /// For standalone use outside of a PTY proxy like Atuin Hex.
 ///
 /// ```no_run
-/// use eye_delcare::{Terminal, TextBlock};
+/// use eye_declare::{Terminal, TextBlock};
 /// use ratatui_core::style::Style;
 ///
 /// let mut term = Terminal::new().unwrap();

@@ -1,5 +1,5 @@
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind};
-use eye_delcare::{Component, EventResult, Terminal, TextBlock, VStack};
+use eye_declare::{Component, EventResult, Terminal, TextBlock, VStack};
 use ratatui_core::{
     buffer::Buffer,
     layout::Rect,

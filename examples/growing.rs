@@ -2,7 +2,7 @@ use std::io::{self, Write};
 use std::thread;
 use std::time::Duration;
 
-use eye_delcare::{Component, InlineRenderer};
+use eye_declare::{Component, InlineRenderer};
 use ratatui_core::{
     buffer::Buffer,
     layout::Rect,

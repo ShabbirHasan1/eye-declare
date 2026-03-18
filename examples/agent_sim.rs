@@ -2,7 +2,7 @@ use std::io::{self, Write};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use eye_delcare::{Component, InlineRenderer, Tracked};
+use eye_declare::{Component, InlineRenderer, Tracked};
 use ratatui_core::{
     buffer::Buffer,
     layout::Rect,
@@ -146,7 +146,9 @@ fn main() -> io::Result<()> {
     {
         let s = r.state_mut::<StaticLine>(prompt_id);
         s.0 = "› How do I implement a binary search in Rust?".into();
-        s.1 = Style::default().fg(Color::White).add_modifier(Modifier::BOLD);
+        s.1 = Style::default()
+            .fg(Color::White)
+            .add_modifier(Modifier::BOLD);
     }
     flush_render(&mut r, &mut stdout)?;
     r.freeze(prompt_id);
@@ -280,7 +282,7 @@ fn flush_render(r: &mut InlineRenderer, stdout: &mut impl Write) -> io::Result<(
 fn animate_spinner(
     r: &mut InlineRenderer,
     stdout: &mut impl Write,
-    id: eye_delcare::NodeId,
+    id: eye_declare::NodeId,
     duration: Duration,
 ) -> io::Result<()> {
     let start = Instant::now();
@@ -299,7 +301,7 @@ fn animate_spinner(
 fn stream_tokens(
     r: &mut InlineRenderer,
     stdout: &mut impl Write,
-    id: eye_delcare::NodeId,
+    id: eye_declare::NodeId,
     delay: Duration,
 ) -> io::Result<()> {
     let total = {

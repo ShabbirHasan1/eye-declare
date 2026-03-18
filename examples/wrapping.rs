@@ -2,7 +2,7 @@ use std::io::{self, Write};
 use std::time::Duration;
 
 use crossterm::event::{self, Event, KeyCode, KeyModifiers};
-use eye_delcare::{InlineRenderer, TextBlock};
+use eye_declare::{InlineRenderer, TextBlock};
 use ratatui_core::style::{Color, Modifier, Style};
 
 fn main() -> io::Result<()> {
@@ -21,7 +21,10 @@ fn main() -> io::Result<()> {
                 .add_modifier(Modifier::BOLD),
         );
         s.push(
-            format!("Terminal width: {} columns — resize to see reflow! Press q or Ctrl+C to exit.", width),
+            format!(
+                "Terminal width: {} columns — resize to see reflow! Press q or Ctrl+C to exit.",
+                width
+            ),
             Style::default().fg(Color::DarkGray),
         );
         s.push("", Style::default());
@@ -44,7 +47,9 @@ fn main() -> io::Result<()> {
     }
 
     let spacer = r.push(TextBlock);
-    { r.state_mut::<TextBlock>(spacer).push("", Style::default()); }
+    {
+        r.state_mut::<TextBlock>(spacer).push("", Style::default());
+    }
     r.freeze(spacer);
 
     let para2 = r.push(TextBlock);
@@ -60,28 +65,26 @@ fn main() -> io::Result<()> {
     }
 
     let spacer2 = r.push(TextBlock);
-    { r.state_mut::<TextBlock>(spacer2).push("", Style::default()); }
+    {
+        r.state_mut::<TextBlock>(spacer2).push("", Style::default());
+    }
     r.freeze(spacer2);
 
     let code_block = r.push(TextBlock);
     {
         let s = r.state_mut::<TextBlock>(code_block);
-        s.push(
-            "fn main() {",
-            Style::default().fg(Color::Green),
-        );
+        s.push("fn main() {", Style::default().fg(Color::Green));
         s.push(
             "    println!(\"Short lines like code don't wrap unless the terminal is very narrow.\");",
             Style::default().fg(Color::Green),
         );
-        s.push(
-            "}",
-            Style::default().fg(Color::Green),
-        );
+        s.push("}", Style::default().fg(Color::Green));
     }
 
     let spacer3 = r.push(TextBlock);
-    { r.state_mut::<TextBlock>(spacer3).push("", Style::default()); }
+    {
+        r.state_mut::<TextBlock>(spacer3).push("", Style::default());
+    }
     r.freeze(spacer3);
 
     let status = r.push(TextBlock);
@@ -125,7 +128,7 @@ fn main() -> io::Result<()> {
     Ok(())
 }
 
-fn update_status(r: &mut InlineRenderer, id: eye_delcare::NodeId, width: u16) {
+fn update_status(r: &mut InlineRenderer, id: eye_declare::NodeId, width: u16) {
     let s = r.state_mut::<TextBlock>(id);
     s.clear();
     s.push(

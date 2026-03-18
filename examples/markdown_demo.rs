@@ -2,7 +2,7 @@ use std::io::{self, Write};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use eye_delcare::{
+use eye_declare::{
     InlineRenderer, Markdown, MarkdownState, Spinner, SpinnerState, TextBlock, VStack,
 };
 use ratatui_core::style::{Color, Modifier, Style};
@@ -110,7 +110,7 @@ fn flush(r: &mut InlineRenderer, stdout: &mut impl Write) -> io::Result<()> {
 fn animate_spinner(
     r: &mut InlineRenderer,
     stdout: &mut impl Write,
-    id: eye_delcare::NodeId,
+    id: eye_declare::NodeId,
     duration: Duration,
 ) -> io::Result<()> {
     let start = Instant::now();

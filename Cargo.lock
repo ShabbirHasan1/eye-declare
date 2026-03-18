@@ -176,7 +176,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "eye_delcare"
+name = "eye_declare"
 version = "0.1.0"
 dependencies = [
  "crossterm",

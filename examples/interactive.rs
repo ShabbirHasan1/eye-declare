@@ -2,7 +2,7 @@ use std::io::{self, Write};
 use std::time::Duration;
 
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
-use eye_delcare::{Component, EventResult, InlineRenderer, TextBlock};
+use eye_declare::{Component, EventResult, InlineRenderer, TextBlock};
 use ratatui_core::{
     buffer::Buffer,
     layout::Rect,
