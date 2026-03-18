@@ -1,4 +1,4 @@
-use std::any::Any;
+use std::any::{Any, TypeId};
 
 use ratatui_core::{buffer::Buffer, layout::Rect};
 
@@ -112,6 +112,11 @@ pub(crate) struct Node {
     pub force_dirty: bool,
     /// The area this node was last rendered into (set by the framework).
     pub layout_rect: Option<Rect>,
+    /// TypeId of the Element that created this node (for reconciliation matching).
+    /// None for nodes created via the imperative API.
+    pub element_type_id: Option<TypeId>,
+    /// Optional key for stable identity across rebuilds.
+    pub key: Option<String>,
 }
 
 impl Node {
@@ -127,6 +132,8 @@ impl Node {
             parent: None,
             force_dirty: false,
             layout_rect: None,
+            element_type_id: None,
+            key: None,
         }
     }
 

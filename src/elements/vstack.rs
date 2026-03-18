@@ -20,4 +20,8 @@ impl Element for VStackEl {
     fn build(self: Box<Self>, renderer: &mut Renderer, parent: NodeId) -> NodeId {
         renderer.append_child(parent, VStack)
     }
+
+    fn update(self: Box<Self>, _renderer: &mut Renderer, _node_id: NodeId) {
+        // VStack has no props to update
+    }
 }

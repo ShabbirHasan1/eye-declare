@@ -1,3 +1,5 @@
+use std::any::TypeId;
+
 use crate::node::NodeId;
 use crate::renderer::Renderer;
 
@@ -9,16 +11,33 @@ use crate::renderer::Renderer;
 ///
 /// The `build` method creates the component, adds it as a child of
 /// `parent`, initializes its state, and returns the new NodeId.
+///
+/// The `update` method is called during reconciliation when a matching
+/// node is found. It should update "props" (parent-provided config)
+/// while preserving "local state" (component-internal state like
+/// animation frames). Implement `update` for any element whose
+/// configuration can change across rebuilds.
 pub trait Element: Send {
     /// Create the component, add it as a child of `parent`,
     /// and initialize its state. Returns the new NodeId.
     fn build(self: Box<Self>, renderer: &mut Renderer, parent: NodeId) -> NodeId;
+
+    /// Update an existing node with new configuration from this element.
+    ///
+    /// Called during reconciliation when a matching node is found.
+    /// Override this to update props while preserving local state.
+    /// Default: no-op (keeps existing state unchanged).
+    fn update(self: Box<Self>, renderer: &mut Renderer, node_id: NodeId) {
+        let _ = (renderer, node_id);
+    }
 }
 
 /// An entry in an Elements list: an element description with optional children.
-struct ElementEntry {
-    element: Box<dyn Element>,
-    children: Option<Elements>,
+pub(crate) struct ElementEntry {
+    pub(crate) element: Box<dyn Element>,
+    pub(crate) children: Option<Elements>,
+    pub(crate) key: Option<String>,
+    pub(crate) type_id: TypeId,
 }
 
 /// A list of element descriptions for declarative tree building.
@@ -31,7 +50,7 @@ struct ElementEntry {
 ///     let mut els = Elements::new();
 ///     els.add(TextBlockEl::new().unstyled("Hello"));
 ///     if state.loading {
-///         els.add(SpinnerEl::new("Loading..."));
+///         els.add(SpinnerEl::new("Loading...")).key("spinner");
 ///     }
 ///     els
 /// }
@@ -47,51 +66,75 @@ impl Elements {
     }
 
     /// Add an element to the list.
-    pub fn add(&mut self, element: impl Element + 'static) -> &mut Self {
+    ///
+    /// Returns an [`ElementHandle`] that can be used to set a key
+    /// for stable identity across rebuilds.
+    pub fn add<E: Element + 'static>(&mut self, element: E) -> ElementHandle<'_> {
+        let type_id = TypeId::of::<E>();
         self.items.push(ElementEntry {
             element: Box::new(element),
             children: None,
+            key: None,
+            type_id,
         });
-        self
+        ElementHandle {
+            entry: self.items.last_mut().unwrap(),
+        }
     }
 
     /// Add an element with nested children.
     ///
     /// The element is created first, then children are built as its
     /// descendants.
-    pub fn add_with_children(
+    pub fn add_with_children<E: Element + 'static>(
         &mut self,
-        element: impl Element + 'static,
+        element: E,
         children: Elements,
-    ) -> &mut Self {
+    ) -> ElementHandle<'_> {
+        let type_id = TypeId::of::<E>();
         self.items.push(ElementEntry {
             element: Box::new(element),
             children: Some(children),
+            key: None,
+            type_id,
         });
-        self
+        ElementHandle {
+            entry: self.items.last_mut().unwrap(),
+        }
     }
 
     /// Add a VStack wrapper around the given children.
     ///
     /// Shorthand for `add_with_children(VStackEl, children)`.
-    pub fn group(&mut self, children: Elements) -> &mut Self {
+    pub fn group(&mut self, children: Elements) -> ElementHandle<'_> {
         self.add_with_children(crate::elements::VStackEl, children)
     }
 
-    /// Consume the Elements and build all entries into the tree
-    /// as children of `parent`.
-    pub(crate) fn build_into(self, renderer: &mut Renderer, parent: NodeId) {
-        for entry in self.items {
-            let node_id = entry.element.build(renderer, parent);
-            if let Some(children) = entry.children {
-                children.build_into(renderer, node_id);
-            }
-        }
+    /// Consume the Elements and return the entries for reconciliation.
+    pub(crate) fn into_items(self) -> Vec<ElementEntry> {
+        self.items
     }
 }
 
 impl Default for Elements {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// Handle returned by [`Elements::add`] for setting element keys.
+pub struct ElementHandle<'a> {
+    entry: &'a mut ElementEntry,
+}
+
+impl<'a> ElementHandle<'a> {
+    /// Set a key for stable identity across rebuilds.
+    ///
+    /// Keyed elements are matched by key during reconciliation,
+    /// allowing them to survive position changes. Without a key,
+    /// elements are matched by position and type.
+    pub fn key(self, key: impl Into<String>) -> Self {
+        self.entry.key = Some(key.into());
+        self
     }
 }

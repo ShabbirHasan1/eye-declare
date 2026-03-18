@@ -27,4 +27,10 @@ impl Element for MarkdownEl {
         **state = MarkdownState::new(self.source);
         id
     }
+
+    fn update(self: Box<Self>, renderer: &mut Renderer, node_id: NodeId) {
+        let state = renderer.state_mut::<Markdown>(node_id);
+        // Update source (prop), preserve styles (local state)
+        state.source = self.source;
+    }
 }

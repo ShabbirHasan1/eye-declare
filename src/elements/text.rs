@@ -50,4 +50,12 @@ impl Element for TextBlockEl {
         }
         id
     }
+
+    fn update(self: Box<Self>, renderer: &mut Renderer, node_id: NodeId) {
+        let state = renderer.state_mut::<TextBlock>(node_id);
+        state.clear();
+        for (text, style) in self.lines {
+            state.push(text, style);
+        }
+    }
 }

@@ -15,7 +15,7 @@ pub use component::{Component, EventResult, Tracked, VStack};
 pub use components::markdown::{Markdown, MarkdownState};
 pub use components::spinner::{Spinner, SpinnerState};
 pub use components::text::{TextBlock, TextState};
-pub use element::{Element, Elements};
+pub use element::{Element, ElementHandle, Elements};
 pub use elements::{MarkdownEl, SpinnerEl, TextBlockEl, VStackEl};
 pub use escape::CursorState;
 pub use frame::{Diff, Frame};

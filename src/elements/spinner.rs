@@ -42,4 +42,14 @@ impl Element for SpinnerEl {
         }
         id
     }
+
+    fn update(self: Box<Self>, renderer: &mut Renderer, node_id: NodeId) {
+        let state = renderer.state_mut::<Spinner>(node_id);
+        // Props (parent-controlled): update on every rebuild
+        state.label = self.label;
+        state.done = self.done;
+        state.done_label = self.done_label;
+        // Local state (component-internal): frame, spinner_style,
+        // label_style, done_style are intentionally NOT reset here.
+    }
 }

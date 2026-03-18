@@ -1,10 +1,12 @@
+use std::collections::{HashMap, VecDeque};
+
 use ratatui_core::{
     buffer::Buffer,
     layout::Rect,
 };
 
 use crate::component::{Component, EventResult, Tracked, VStack};
-use crate::element::Elements;
+use crate::element::{ElementEntry, Elements};
 use crate::frame::Frame;
 use crate::node::{Node, NodeId};
 
@@ -223,15 +225,128 @@ impl Renderer {
     /// renderer.rebuild(container, my_view(&state));
     /// ```
     pub fn rebuild(&mut self, parent: NodeId, elements: Elements) {
-        // Remove all existing children — clear the parent's list first,
-        // then tombstone each subtree (avoids O(n²) retain calls).
+        self.reconcile_children(parent, elements.into_items());
+    }
+
+    /// Find a direct child of `parent` by its key.
+    ///
+    /// Returns `None` if no child has the given key.
+    pub fn find_by_key(&self, parent: NodeId, key: &str) -> Option<NodeId> {
+        self.nodes[parent.0]
+            .children
+            .iter()
+            .find(|&&child_id| self.nodes[child_id.0].key.as_deref() == Some(key))
+            .copied()
+    }
+
+    /// Reconcile old children of `parent` against new element entries.
+    ///
+    /// Reuses existing nodes where possible (matching by key or by
+    /// position+type), preserving their local component state. Calls
+    /// `Element::update` on reused nodes and `Element::build` on new ones.
+    fn reconcile_children(&mut self, parent: NodeId, new_entries: Vec<ElementEntry>) {
         let old_children: Vec<NodeId> = std::mem::take(&mut self.nodes[parent.0].children);
-        for child_id in old_children {
-            self.tombstone_subtree(child_id);
+
+        // Separate old children into keyed and unkeyed
+        let mut old_by_key: HashMap<String, NodeId> = HashMap::new();
+        let mut old_unkeyed: VecDeque<NodeId> = VecDeque::new();
+
+        for &child_id in &old_children {
+            if let Some(ref key) = self.nodes[child_id.0].key {
+                old_by_key.insert(key.clone(), child_id);
+            } else {
+                old_unkeyed.push_back(child_id);
+            }
         }
 
-        // Build new children from elements
-        elements.build_into(self, parent);
+        let mut new_children: Vec<NodeId> = Vec::with_capacity(new_entries.len());
+
+        for entry in new_entries {
+            let matched = if let Some(ref key) = entry.key {
+                // Keyed: match by key + type
+                match old_by_key.remove(key) {
+                    Some(old_id)
+                        if self.nodes[old_id.0].element_type_id == Some(entry.type_id) =>
+                    {
+                        Some(old_id)
+                    }
+                    Some(old_id) => {
+                        // Key exists but wrong type — tombstone old
+                        self.tombstone_subtree(old_id);
+                        None
+                    }
+                    None => None,
+                }
+            } else {
+                // Unkeyed matching is strictly positional. If types don't match
+                // at this position, the old node is discarded even if a matching
+                // type exists later in the list. Use keys for stable identity
+                // across reorders.
+                if let Some(front_id) = old_unkeyed.pop_front() {
+                    if self.nodes[front_id.0].element_type_id == Some(entry.type_id) {
+                        Some(front_id)
+                    } else {
+                        self.tombstone_subtree(front_id);
+                        None
+                    }
+                } else {
+                    None
+                }
+            };
+
+            let node_id = if let Some(old_id) = matched {
+                // REUSE: update props, preserve local state
+                entry.element.update(self, old_id);
+                self.nodes[old_id.0].parent = Some(parent);
+                // Guarantee re-render after props update
+                self.nodes[old_id.0].force_dirty = true;
+
+                // Reconcile children recursively
+                if let Some(children) = entry.children {
+                    self.reconcile_children(old_id, children.into_items());
+                }
+
+                old_id
+            } else {
+                // BUILD: create new node
+                let id = entry.element.build(self, parent);
+                self.nodes[id.0].element_type_id = Some(entry.type_id);
+                self.nodes[id.0].key = entry.key;
+
+                if let Some(children) = entry.children {
+                    self.build_elements(id, children);
+                }
+
+                id
+            };
+
+            new_children.push(node_id);
+        }
+
+        // Tombstone remaining unmatched old children
+        for old_id in old_unkeyed {
+            self.tombstone_subtree(old_id);
+        }
+        for (_, old_id) in old_by_key {
+            self.tombstone_subtree(old_id);
+        }
+
+        self.nodes[parent.0].children = new_children;
+    }
+
+    /// Build elements into the tree as children of `parent`.
+    ///
+    /// Sets element_type_id and key on newly created nodes so they
+    /// can participate in future reconciliation.
+    fn build_elements(&mut self, parent: NodeId, elements: Elements) {
+        for entry in elements.into_items() {
+            let node_id = entry.element.build(self, parent);
+            self.nodes[node_id.0].element_type_id = Some(entry.type_id);
+            self.nodes[node_id.0].key = entry.key;
+            if let Some(children) = entry.children {
+                self.build_elements(node_id, children);
+            }
+        }
     }
 
     /// Tombstone a node and all its descendants without touching the
@@ -944,6 +1059,14 @@ mod tests {
             }
             id
         }
+
+        fn update(self: Box<Self>, renderer: &mut Renderer, node_id: NodeId) {
+            let state = renderer.state_mut::<TextBlock>(node_id);
+            state.clear();
+            for line in self.lines {
+                state.push(line);
+            }
+        }
     }
 
     #[test]
@@ -1098,5 +1221,263 @@ mod tests {
         let frame = r.render();
         assert_eq!(frame.area().height, 1);
         assert_eq!(frame.buffer()[(0, 0)].symbol(), "c"); // "custom!"
+    }
+
+    // --- Reconciliation tests ---
+
+    /// A counter element whose state tracks how many times it was built.
+    /// Used to verify reconciliation reuses nodes vs creating new ones.
+    struct CounterWidget;
+
+    impl Component for CounterWidget {
+        type State = (String, usize); // (label, build_count)
+
+        fn render(&self, area: Rect, buf: &mut Buffer, state: &Self::State) {
+            let line = ratatui_core::text::Line::raw(state.0.as_str());
+            ratatui_core::widgets::Widget::render(Paragraph::new(line), area, buf);
+        }
+
+        fn desired_height(&self, _width: u16, state: &Self::State) -> u16 {
+            if state.0.is_empty() { 0 } else { 1 }
+        }
+
+        fn initial_state(&self) -> (String, usize) {
+            (String::new(), 0)
+        }
+    }
+
+    struct CounterEl {
+        label: String,
+    }
+
+    impl CounterEl {
+        fn new(label: &str) -> Self {
+            Self { label: label.to_string() }
+        }
+    }
+
+    impl Element for CounterEl {
+        fn build(self: Box<Self>, renderer: &mut Renderer, parent: NodeId) -> NodeId {
+            let id = renderer.append_child(parent, CounterWidget);
+            let state = renderer.state_mut::<CounterWidget>(id);
+            state.0 = self.label;
+            state.1 = 1; // build_count = 1
+            id
+        }
+
+        fn update(self: Box<Self>, renderer: &mut Renderer, node_id: NodeId) {
+            let state = renderer.state_mut::<CounterWidget>(node_id);
+            state.0 = self.label;
+            // Don't reset build_count — it proves the node was reused
+        }
+    }
+
+    #[test]
+    fn reconciliation_reuses_same_type_at_same_position() {
+        let mut r = Renderer::new(10);
+        let container = r.push(VStack);
+
+        // First build
+        let mut els = Elements::new();
+        els.add(CounterEl::new("first"));
+        r.rebuild(container, els);
+
+        let children_1 = r.children(container).to_vec();
+        assert_eq!(children_1.len(), 1);
+        let first_id = children_1[0];
+        assert_eq!(r.state_mut::<CounterWidget>(first_id).1, 1); // build_count = 1
+
+        // Second rebuild with same type at same position
+        let mut els = Elements::new();
+        els.add(CounterEl::new("updated"));
+        r.rebuild(container, els);
+
+        let children_2 = r.children(container).to_vec();
+        assert_eq!(children_2.len(), 1);
+        // Same NodeId — node was reused, not recreated
+        assert_eq!(children_2[0], first_id);
+        // Label updated by update()
+        assert_eq!(&r.state_mut::<CounterWidget>(first_id).0, "updated");
+        // build_count still 1 — proves update was called, not build
+        assert_eq!(r.state_mut::<CounterWidget>(first_id).1, 1);
+    }
+
+    #[test]
+    fn reconciliation_type_mismatch_creates_new_node() {
+        let mut r = Renderer::new(10);
+        let container = r.push(VStack);
+
+        // Build with CounterEl
+        let mut els = Elements::new();
+        els.add(CounterEl::new("counter"));
+        r.rebuild(container, els);
+
+        let old_id = r.children(container)[0];
+
+        // Rebuild with TestTextEl (different type)
+        let mut els = Elements::new();
+        els.add(TestTextEl::new("text"));
+        r.rebuild(container, els);
+
+        let new_id = r.children(container)[0];
+        // Different NodeId — old node tombstoned, new created
+        assert_ne!(new_id, old_id);
+    }
+
+    #[test]
+    fn keyed_elements_survive_position_change() {
+        let mut r = Renderer::new(10);
+        let container = r.push(VStack);
+
+        // Build: [A, B]
+        let mut els = Elements::new();
+        els.add(CounterEl::new("A")).key("a");
+        els.add(CounterEl::new("B")).key("b");
+        r.rebuild(container, els);
+
+        let children_1 = r.children(container).to_vec();
+        let id_a = children_1[0];
+        let id_b = children_1[1];
+
+        // Rebuild: [B, A] — reversed order
+        let mut els = Elements::new();
+        els.add(CounterEl::new("B")).key("b");
+        els.add(CounterEl::new("A")).key("a");
+        r.rebuild(container, els);
+
+        let children_2 = r.children(container).to_vec();
+        // Nodes reused but in new order
+        assert_eq!(children_2[0], id_b);
+        assert_eq!(children_2[1], id_a);
+        // build_count still 1 for both — reused, not recreated
+        assert_eq!(r.state_mut::<CounterWidget>(id_a).1, 1);
+        assert_eq!(r.state_mut::<CounterWidget>(id_b).1, 1);
+    }
+
+    #[test]
+    fn keyed_element_removed_and_added() {
+        let mut r = Renderer::new(10);
+        let container = r.push(VStack);
+
+        // Build: [A, B, C]
+        let mut els = Elements::new();
+        els.add(CounterEl::new("A")).key("a");
+        els.add(CounterEl::new("B")).key("b");
+        els.add(CounterEl::new("C")).key("c");
+        r.rebuild(container, els);
+
+        let id_a = r.children(container)[0];
+        let id_c = r.children(container)[2];
+
+        // Rebuild: [A, C] — B removed
+        let mut els = Elements::new();
+        els.add(CounterEl::new("A")).key("a");
+        els.add(CounterEl::new("C")).key("c");
+        r.rebuild(container, els);
+
+        let children = r.children(container).to_vec();
+        assert_eq!(children.len(), 2);
+        assert_eq!(children[0], id_a); // A reused
+        assert_eq!(children[1], id_c); // C reused
+    }
+
+    #[test]
+    fn find_by_key_works() {
+        let mut r = Renderer::new(10);
+        let container = r.push(VStack);
+
+        let mut els = Elements::new();
+        els.add(CounterEl::new("alpha")).key("first");
+        els.add(CounterEl::new("beta")).key("second");
+        els.add(CounterEl::new("gamma")); // no key
+        r.rebuild(container, els);
+
+        assert_eq!(
+            r.find_by_key(container, "first"),
+            Some(r.children(container)[0])
+        );
+        assert_eq!(
+            r.find_by_key(container, "second"),
+            Some(r.children(container)[1])
+        );
+        assert_eq!(r.find_by_key(container, "third"), None);
+        assert_eq!(r.find_by_key(container, "gamma"), None); // not a key
+    }
+
+    #[test]
+    fn reconciliation_preserves_local_state() {
+        let mut r = Renderer::new(10);
+        let container = r.push(VStack);
+
+        // Build with a counter
+        let mut els = Elements::new();
+        els.add(CounterEl::new("item")).key("c");
+        r.rebuild(container, els);
+
+        let id = r.find_by_key(container, "c").unwrap();
+        // Simulate local state mutation (increment build_count as proxy)
+        r.state_mut::<CounterWidget>(id).1 = 42;
+
+        // Rebuild — node should be reused, local state preserved
+        let mut els = Elements::new();
+        els.add(CounterEl::new("updated-item")).key("c");
+        r.rebuild(container, els);
+
+        let id_after = r.find_by_key(container, "c").unwrap();
+        assert_eq!(id, id_after); // same node
+        assert_eq!(&r.state_mut::<CounterWidget>(id).0, "updated-item"); // label updated
+        assert_eq!(r.state_mut::<CounterWidget>(id).1, 42); // local state preserved
+    }
+
+    #[test]
+    fn reconciliation_nested_children() {
+        let mut r = Renderer::new(10);
+        let container = r.push(VStack);
+
+        // Build nested: VStack > [A, B]
+        let mut inner = Elements::new();
+        inner.add(CounterEl::new("A")).key("a");
+        inner.add(CounterEl::new("B")).key("b");
+        let mut els = Elements::new();
+        els.add_with_children(crate::elements::VStackEl, inner).key("group");
+        r.rebuild(container, els);
+
+        let group_id = r.find_by_key(container, "group").unwrap();
+        let id_a = r.find_by_key(group_id, "a").unwrap();
+        let id_b = r.find_by_key(group_id, "b").unwrap();
+
+        // Rebuild nested: VStack > [A, C] — B removed, C added
+        let mut inner = Elements::new();
+        inner.add(CounterEl::new("A-updated")).key("a");
+        inner.add(CounterEl::new("C")).key("c");
+        let mut els = Elements::new();
+        els.add_with_children(crate::elements::VStackEl, inner).key("group");
+        r.rebuild(container, els);
+
+        // Group reused
+        assert_eq!(r.find_by_key(container, "group").unwrap(), group_id);
+        // A reused with updated label
+        let id_a_after = r.find_by_key(group_id, "a").unwrap();
+        assert_eq!(id_a_after, id_a);
+        assert_eq!(&r.state_mut::<CounterWidget>(id_a).0, "A-updated");
+        // B gone, C new
+        assert_eq!(r.find_by_key(group_id, "b"), None);
+        let id_c = r.find_by_key(group_id, "c").unwrap();
+        assert_ne!(id_c, id_b); // new node
+    }
+
+    #[test]
+    fn empty_rebuild_clears_with_reconciliation() {
+        let mut r = Renderer::new(10);
+        let container = r.push(VStack);
+
+        let mut els = Elements::new();
+        els.add(CounterEl::new("something")).key("x");
+        r.rebuild(container, els);
+        assert_eq!(r.children(container).len(), 1);
+
+        // Rebuild with empty
+        r.rebuild(container, Elements::new());
+        assert_eq!(r.children(container).len(), 0);
     }
 }

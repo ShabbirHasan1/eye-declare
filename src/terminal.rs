@@ -80,6 +80,11 @@ impl Terminal {
         self.renderer.rebuild(parent, elements)
     }
 
+    /// Find a direct child of `parent` by its key.
+    pub fn find_by_key(&self, parent: NodeId, key: &str) -> Option<NodeId> {
+        self.renderer.find_by_key(parent, key)
+    }
+
     pub fn set_focus(&mut self, id: NodeId) {
         self.renderer.set_focus(id)
     }

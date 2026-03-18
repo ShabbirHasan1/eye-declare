@@ -2,6 +2,8 @@
 //!
 //! This example shows how to use `Elements` and `rebuild` to describe
 //! the UI as a function of state, instead of imperative tree manipulation.
+//! With reconciliation, component state (like spinner animation frames)
+//! survives across rebuilds when elements are keyed.
 //!
 //! Run with: cargo run --example declarative
 
@@ -9,7 +11,7 @@ use std::io::{self, Write};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use eye_declare::{Elements, InlineRenderer, MarkdownEl, NodeId, SpinnerEl, TextBlockEl, VStack};
+use eye_declare::{Elements, InlineRenderer, MarkdownEl, SpinnerEl, TextBlockEl, VStack};
 use ratatui_core::style::{Color, Style};
 
 // ---------------------------------------------------------------------------
@@ -39,19 +41,19 @@ impl AppState {
 fn chat_view(state: &AppState) -> Elements {
     let mut els = Elements::new();
 
-    // Render all messages
-    for msg in &state.messages {
-        els.add(MarkdownEl::new(msg));
+    // Render all messages with stable keys
+    for (i, msg) in state.messages.iter().enumerate() {
+        els.add(MarkdownEl::new(msg)).key(format!("msg-{i}"));
     }
 
-    // Show thinking spinner if active
+    // Show thinking spinner if active (keyed for state preservation)
     if state.thinking {
-        els.add(SpinnerEl::new("Thinking..."));
+        els.add(SpinnerEl::new("Thinking...")).key("thinking");
     }
 
-    // Show tool call spinner if active
+    // Show tool call spinner if active (keyed for state preservation)
     if let Some(ref tool) = state.tool_running {
-        els.add(SpinnerEl::new(format!("Running {}...", tool)));
+        els.add(SpinnerEl::new(format!("Running {}...", tool))).key("tool");
     }
 
     // Separator at the bottom
@@ -81,15 +83,12 @@ fn main() -> io::Result<()> {
     r.rebuild(container, chat_view(&state));
     flush(&mut r, &mut stdout)?;
 
-    // Animate spinner — tick the component state directly rather than
-    // rebuilding, since rebuild would recreate the node and reset the frame.
+    // Animate the thinking spinner — find it by key, not index!
+    // The spinner's frame counter survives rebuilds thanks to reconciliation.
     let start = Instant::now();
     while start.elapsed() < Duration::from_millis(1500) {
-        let children = r.children(container).to_vec();
-        if let Some(&spinner_id) = children.first() {
-            if let Ok(spinner_state) = try_state_mut::<eye_declare::Spinner>(&mut r, spinner_id) {
-                spinner_state.tick();
-            }
+        if let Some(id) = r.find_by_key(container, "thinking") {
+            r.state_mut::<eye_declare::Spinner>(id).tick();
         }
         flush(&mut r, &mut stdout)?;
         thread::sleep(Duration::from_millis(80));
@@ -114,7 +113,7 @@ fn main() -> io::Result<()> {
          \x20   None\n\
          }\n\
          ```"
-        .to_string(),
+            .to_string(),
     );
     r.rebuild(container, chat_view(&state));
     flush(&mut r, &mut stdout)?;
@@ -125,16 +124,11 @@ fn main() -> io::Result<()> {
     r.rebuild(container, chat_view(&state));
     flush(&mut r, &mut stdout)?;
 
-    // Animate tool spinner
+    // Animate tool spinner — find by key, frame survives rebuilds
     let start = Instant::now();
     while start.elapsed() < Duration::from_millis(2000) {
-        let children = r.children(container).to_vec();
-        // The tool spinner is the second-to-last child (before separator)
-        if children.len() >= 2 {
-            let spinner_id = children[children.len() - 2];
-            if let Ok(spinner_state) = try_state_mut::<eye_declare::Spinner>(&mut r, spinner_id) {
-                spinner_state.tick();
-            }
+        if let Some(id) = r.find_by_key(container, "tool") {
+            r.state_mut::<eye_declare::Spinner>(id).tick();
         }
         flush(&mut r, &mut stdout)?;
         thread::sleep(Duration::from_millis(80));
@@ -166,15 +160,4 @@ fn flush(r: &mut InlineRenderer, stdout: &mut impl Write) -> io::Result<()> {
         stdout.flush()?;
     }
     Ok(())
-}
-
-/// Try to get mutable state for a component, returning Err if type mismatch.
-fn try_state_mut<C: eye_declare::Component>(
-    r: &mut InlineRenderer,
-    id: NodeId,
-) -> Result<&mut eye_declare::Tracked<C::State>, ()> {
-    // state_mut panics on type mismatch, so we just call it — in this
-    // example we know the types. In production code you might want a
-    // try_state_mut on Renderer.
-    Ok(r.state_mut::<C>(id))
 }
