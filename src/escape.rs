@@ -9,6 +9,7 @@ const ESU: &[u8] = b"\x1b[?2026l";
 /// Hide cursor.
 const HIDE_CURSOR: &[u8] = b"\x1b[?25l";
 /// Show cursor.
+#[allow(dead_code)]
 const SHOW_CURSOR: &[u8] = b"\x1b[?25h";
 
 /// Tracks terminal cursor position and current style to minimize output.
@@ -43,9 +44,10 @@ impl Diff {
     /// row is unknown. The `cursor` tracks position in buffer-local
     /// coordinates (row 0 = first row of our content).
     ///
-    /// The output is wrapped in DEC 2026 synchronized output sequences
-    /// and cursor hide/show. The `cursor` state is updated to reflect
-    /// the final position after writing.
+    /// The output is wrapped in DEC 2026 synchronized output sequences.
+    /// The cursor is hidden during the update but **not shown** at the
+    /// end — the caller is responsible for positioning and showing the
+    /// cursor afterward (e.g., at the focused input's cursor position).
     pub fn to_escape_sequences(&self, cursor: &mut CursorState) -> Vec<u8> {
         if self.cells.is_empty() {
             return Vec::new();
@@ -89,8 +91,7 @@ impl Diff {
         out.extend_from_slice(b"\x1b[0m");
         cursor.style = Style::default();
 
-        // Show cursor + end synchronized update
-        out.extend_from_slice(SHOW_CURSOR);
+        // End synchronized update (caller manages cursor visibility)
         out.extend_from_slice(ESU);
 
         out
@@ -99,7 +100,7 @@ impl Diff {
 
 /// Move the cursor from its current position to (target_row, target_col)
 /// using relative movement escape sequences only.
-fn write_relative_move(out: &mut Vec<u8>, cursor: &mut CursorState, target_row: u16, target_col: u16) {
+pub fn write_relative_move(out: &mut Vec<u8>, cursor: &mut CursorState, target_row: u16, target_col: u16) {
     // Vertical movement
     if target_row < cursor.row {
         let n = cursor.row - target_row;

@@ -3,7 +3,7 @@ use ratatui_core::{
     layout::Rect,
 };
 
-use crate::component::{Component, Tracked, VStack};
+use crate::component::{Component, EventResult, Tracked, VStack};
 use crate::frame::Frame;
 use crate::node::{Node, NodeId};
 
@@ -16,6 +16,10 @@ pub struct Renderer {
     nodes: Vec<Node>,
     root: NodeId,
     width: u16,
+    focused: Option<NodeId>,
+    /// After rendering, the absolute cursor position for the focused
+    /// component (if it returns one from cursor_position).
+    cursor_hint: Option<(u16, u16)>,
 }
 
 impl Renderer {
@@ -27,7 +31,7 @@ impl Renderer {
         nodes.push(Node::new(VStack));
         // Root starts clean since VStack has no visible content
         nodes[0].state.clear_dirty();
-        Self { nodes, root, width }
+        Self { nodes, root, width, focused: None, cursor_hint: None }
     }
 
     /// The root node's ID.
@@ -73,6 +77,54 @@ impl Renderer {
     /// List the children of a node.
     pub fn children(&self, id: NodeId) -> &[NodeId] {
         &self.nodes[id.0].children
+    }
+
+    /// Set which component has focus for event routing.
+    pub fn set_focus(&mut self, id: NodeId) {
+        self.focused = Some(id);
+    }
+
+    /// Clear focus (no component receives events).
+    pub fn clear_focus(&mut self) {
+        self.focused = None;
+    }
+
+    /// The currently focused component, if any.
+    pub fn focus(&self) -> Option<NodeId> {
+        self.focused
+    }
+
+    /// Deliver an event to the focused component.
+    ///
+    /// If the focused component returns [`EventResult::Ignored`],
+    /// the event bubbles up to its parent, and so on until consumed
+    /// or the root is reached.
+    ///
+    /// Returns [`EventResult::Ignored`] if no component is focused
+    /// or no component consumed the event.
+    pub fn handle_event(&mut self, event: &crossterm::event::Event) -> EventResult {
+        let Some(focused) = self.focused else {
+            return EventResult::Ignored;
+        };
+
+        // Try the focused node, then bubble up through parents
+        let mut current = Some(focused);
+        while let Some(id) = current {
+            let node = &mut self.nodes[id.0];
+            if node.frozen {
+                // Frozen components don't handle events
+                current = node.parent;
+                continue;
+            }
+            let state_any = node.state.as_any_mut();
+            let result = node.component.handle_event_erased(event, state_any);
+            if result == EventResult::Consumed {
+                return EventResult::Consumed;
+            }
+            current = self.nodes[id.0].parent;
+        }
+
+        EventResult::Ignored
     }
 
     /// Remove a node and all its descendants from the tree.
@@ -142,6 +194,7 @@ impl Renderer {
         let total_height = self.measure_height(self.root, self.width);
 
         if total_height == 0 || self.width == 0 {
+            self.cursor_hint = None;
             return Frame::new(Buffer::empty(Rect::new(0, 0, self.width, 0)));
         }
 
@@ -150,7 +203,31 @@ impl Renderer {
 
         self.render_node(self.root, area, &mut buffer);
 
+        // Compute cursor hint from the focused component
+        self.cursor_hint = None;
+        if let Some(focused) = self.focused {
+            let node = &self.nodes[focused.0];
+            if let Some(layout_rect) = node.layout_rect {
+                let state = node.state.inner_as_any();
+                if let Some((rel_col, rel_row)) =
+                    node.component.cursor_position_erased(layout_rect, state)
+                {
+                    // Convert to absolute buffer coordinates
+                    self.cursor_hint = Some((
+                        layout_rect.x + rel_col,
+                        layout_rect.y + rel_row,
+                    ));
+                }
+            }
+        }
+
         Frame::new(buffer)
+    }
+
+    /// After rendering, the absolute cursor position hint from the
+    /// focused component. `None` means hide the cursor.
+    pub fn cursor_hint(&self) -> Option<(u16, u16)> {
+        self.cursor_hint
     }
 
     /// Recursively measure the height of a node and its children.
@@ -179,6 +256,9 @@ impl Renderer {
         if area.height == 0 || area.width == 0 {
             return;
         }
+
+        // Store layout rect for cursor positioning
+        self.nodes[id.0].layout_rect = Some(area);
 
         let node = &self.nodes[id.0];
         let is_container = node.is_container();
@@ -492,5 +572,155 @@ mod tests {
 
         let frame2 = r.render();
         assert_eq!(frame2.area().height, 0);
+    }
+
+    // --- Event handling tests ---
+
+    /// A component that appends characters from key events to its state.
+    struct InputCapture;
+
+    impl Component for InputCapture {
+        type State = String;
+
+        fn render(&self, area: Rect, buf: &mut Buffer, state: &Self::State) {
+            let line = ratatui_core::text::Line::raw(state.as_str());
+            ratatui_core::widgets::Widget::render(Paragraph::new(line), area, buf);
+        }
+
+        fn desired_height(&self, _width: u16, state: &Self::State) -> u16 {
+            if state.is_empty() { 0 } else { 1 }
+        }
+
+        fn handle_event(
+            &self,
+            event: &crossterm::event::Event,
+            state: &mut Self::State,
+        ) -> EventResult {
+            use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind};
+            if let Event::Key(KeyEvent {
+                code: KeyCode::Char(c),
+                kind: KeyEventKind::Press,
+                ..
+            }) = event
+            {
+                state.push(*c);
+                EventResult::Consumed
+            } else {
+                EventResult::Ignored
+            }
+        }
+
+        fn initial_state(&self) -> String {
+            String::new()
+        }
+    }
+
+    fn key_event(c: char) -> crossterm::event::Event {
+        crossterm::event::Event::Key(crossterm::event::KeyEvent::new(
+            crossterm::event::KeyCode::Char(c),
+            crossterm::event::KeyModifiers::empty(),
+        ))
+    }
+
+    #[test]
+    fn event_delivered_to_focused_component() {
+        let mut r = Renderer::new(10);
+        let id = r.push(InputCapture);
+        r.set_focus(id);
+
+        let result = r.handle_event(&key_event('a'));
+        assert_eq!(result, EventResult::Consumed);
+
+        // State should have been mutated
+        let state = r.state_mut::<InputCapture>(id);
+        assert_eq!(&**state, "a");
+    }
+
+    #[test]
+    fn no_focus_returns_ignored() {
+        let mut r = Renderer::new(10);
+        let _id = r.push(InputCapture);
+        // No focus set
+
+        let result = r.handle_event(&key_event('a'));
+        assert_eq!(result, EventResult::Ignored);
+    }
+
+    #[test]
+    fn event_bubbles_to_parent() {
+        let mut r = Renderer::new(10);
+
+        // Parent handles events, child (TextBlock) does not
+        let parent = r.push(InputCapture);
+        let child = r.append_child(parent, TextBlock);
+        r.state_mut::<TextBlock>(child).push("child".to_string());
+
+        // Focus the child
+        r.set_focus(child);
+
+        // Child ignores the event → bubbles to parent
+        let result = r.handle_event(&key_event('x'));
+        assert_eq!(result, EventResult::Consumed);
+
+        // Parent state should have the character
+        let state = r.state_mut::<InputCapture>(parent);
+        assert_eq!(&**state, "x");
+    }
+
+    #[test]
+    fn frozen_component_skipped_in_bubble() {
+        let mut r = Renderer::new(10);
+
+        let parent = r.push(InputCapture);
+        let child = r.append_child(parent, TextBlock);
+        r.state_mut::<TextBlock>(child).push("child".to_string());
+
+        // Freeze the parent
+        let _ = r.render(); // populate cache
+        r.freeze(parent);
+
+        // Focus the child
+        r.set_focus(child);
+
+        // Event bubbles to parent, but parent is frozen → skipped
+        let result = r.handle_event(&key_event('x'));
+        assert_eq!(result, EventResult::Ignored);
+    }
+
+    #[test]
+    fn event_marks_state_dirty() {
+        let mut r = Renderer::new(10);
+        let id = r.push(InputCapture);
+        r.set_focus(id);
+
+        // Give it content so it renders (height > 0)
+        r.state_mut::<InputCapture>(id).push('x');
+
+        // Render to clear dirty flag
+        let _ = r.render();
+        assert!(!r.nodes[id.0].state.is_dirty());
+
+        // Deliver event
+        r.handle_event(&key_event('a'));
+
+        // State should be dirty now (DerefMut in handle_event_erased)
+        assert!(r.nodes[id.0].state.is_dirty());
+    }
+
+    #[test]
+    fn focus_can_be_changed() {
+        let mut r = Renderer::new(10);
+        let id1 = r.push(InputCapture);
+        let id2 = r.push(InputCapture);
+
+        r.set_focus(id1);
+        r.handle_event(&key_event('a'));
+        assert_eq!(&**r.state_mut::<InputCapture>(id1), "a");
+        assert_eq!(&**r.state_mut::<InputCapture>(id2), "");
+
+        r.set_focus(id2);
+        r.handle_event(&key_event('b'));
+        assert_eq!(&**r.state_mut::<InputCapture>(id1), "a");
+        assert_eq!(&**r.state_mut::<InputCapture>(id2), "b");
     }
 }

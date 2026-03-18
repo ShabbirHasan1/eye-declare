@@ -1,4 +1,4 @@
-use crate::component::{Component, Tracked};
+use crate::component::{Component, EventResult, Tracked};
 use crate::escape::CursorState;
 use crate::frame::Frame;
 use crate::node::NodeId;
@@ -61,6 +61,26 @@ impl InlineRenderer {
     /// List the children of a node.
     pub fn children(&self, id: NodeId) -> &[NodeId] {
         self.renderer.children(id)
+    }
+
+    /// Set which component has focus for event routing.
+    pub fn set_focus(&mut self, id: NodeId) {
+        self.renderer.set_focus(id);
+    }
+
+    /// Clear focus.
+    pub fn clear_focus(&mut self) {
+        self.renderer.clear_focus();
+    }
+
+    /// The currently focused component, if any.
+    pub fn focus(&self) -> Option<NodeId> {
+        self.renderer.focus()
+    }
+
+    /// Deliver an event to the focused component with bubble-up.
+    pub fn handle_event(&mut self, event: &crossterm::event::Event) -> EventResult {
+        self.renderer.handle_event(event)
     }
 
     /// Handle a terminal resize.
@@ -145,6 +165,7 @@ impl InlineRenderer {
             let escape_bytes = diff.to_escape_sequences(&mut self.cursor);
             output.extend_from_slice(&escape_bytes);
 
+            self.append_cursor_position(&mut output);
             self.prev_frame = Some(new_frame);
             return output;
         }
@@ -154,9 +175,12 @@ impl InlineRenderer {
         let diff = new_frame.diff(prev);
 
         if diff.is_empty() && !diff.grew() {
-            // Nothing changed
+            // Even if content didn't change, cursor position might have
+            // (e.g., cursor moved within an input field)
+            let mut output = Vec::new();
+            self.append_cursor_position(&mut output);
             self.prev_frame = Some(new_frame);
-            return Vec::new();
+            return output;
         }
 
         let mut output = Vec::new();
@@ -185,8 +209,22 @@ impl InlineRenderer {
         let escape_bytes = diff.to_escape_sequences(&mut self.cursor);
         output.extend_from_slice(&escape_bytes);
 
+        self.append_cursor_position(&mut output);
         self.prev_frame = Some(new_frame);
         output
+    }
+
+    /// Append escape sequences to position the terminal cursor at the
+    /// focused component's cursor hint (if any), using relative movement.
+    fn append_cursor_position(&mut self, output: &mut Vec<u8>) {
+        if let Some((col, row)) = self.renderer.cursor_hint() {
+            crate::escape::write_relative_move(output, &mut self.cursor, row, col);
+            // Show cursor at the component's cursor position
+            output.extend_from_slice(b"\x1b[?25h");
+        } else {
+            // No cursor hint — hide cursor
+            output.extend_from_slice(b"\x1b[?25l");
+        }
     }
 }
 
@@ -244,14 +282,18 @@ mod tests {
     }
 
     #[test]
-    fn no_change_produces_empty_output() {
+    fn no_change_produces_minimal_output() {
         let mut ir = InlineRenderer::new(10);
         let id = ir.push(TextBlock);
         ir.state_mut::<TextBlock>(id).push("hello".to_string());
 
         let _first = ir.render();
         let second = ir.render();
-        assert!(second.is_empty());
+        // No content changes, but cursor positioning may be emitted
+        // (hide cursor if no focused component has a cursor hint)
+        let s = String::from_utf8_lossy(&second);
+        // Should not contain any cell content or DEC 2026 sync
+        assert!(!s.contains("\x1b[?2026h"));
     }
 
     #[test]

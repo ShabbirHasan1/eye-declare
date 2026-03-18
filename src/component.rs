@@ -69,6 +69,31 @@ pub trait Component: Send + Sync + 'static {
     /// How tall does this component want to be at the given width?
     fn desired_height(&self, width: u16, state: &Self::State) -> u16;
 
+    /// Handle an input event, potentially mutating state.
+    ///
+    /// Return [`EventResult::Consumed`] if the event was handled,
+    /// or [`EventResult::Ignored`] to let it bubble up to the parent.
+    /// State mutations through the `&mut` reference automatically
+    /// mark the component dirty for re-rendering.
+    fn handle_event(
+        &self,
+        _event: &crossterm::event::Event,
+        _state: &mut Self::State,
+    ) -> EventResult {
+        EventResult::Ignored
+    }
+
+    /// Where to position the terminal's hardware cursor when this
+    /// component has focus. Returns `(col, row)` relative to the
+    /// component's render area, or `None` to hide the cursor.
+    ///
+    /// This is used by the framework to position the blinking
+    /// terminal cursor after rendering (e.g., at the text insertion
+    /// point in an input field).
+    fn cursor_position(&self, _area: Rect, _state: &Self::State) -> Option<(u16, u16)> {
+        None
+    }
+
     /// Create the initial state for this component.
     fn initial_state(&self) -> Self::State;
 }

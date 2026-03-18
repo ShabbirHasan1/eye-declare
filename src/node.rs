@@ -12,6 +12,12 @@ pub struct NodeId(pub(crate) usize);
 pub(crate) trait AnyComponent: Send + Sync {
     fn render_erased(&self, area: Rect, buf: &mut Buffer, state: &dyn Any);
     fn desired_height_erased(&self, width: u16, state: &dyn Any) -> u16;
+    fn handle_event_erased(
+        &self,
+        event: &crossterm::event::Event,
+        tracked_state: &mut dyn Any,
+    ) -> crate::component::EventResult;
+    fn cursor_position_erased(&self, area: Rect, state: &dyn Any) -> Option<(u16, u16)>;
 }
 
 impl<C: Component> AnyComponent for C {
@@ -27,6 +33,25 @@ impl<C: Component> AnyComponent for C {
             .downcast_ref::<C::State>()
             .expect("state type mismatch in desired_height_erased");
         self.desired_height(width, state)
+    }
+
+    fn handle_event_erased(
+        &self,
+        event: &crossterm::event::Event,
+        tracked_state: &mut dyn Any,
+    ) -> crate::component::EventResult {
+        let tracked = tracked_state
+            .downcast_mut::<Tracked<C::State>>()
+            .expect("state type mismatch in handle_event_erased");
+        // DerefMut on Tracked marks dirty automatically
+        self.handle_event(event, &mut *tracked)
+    }
+
+    fn cursor_position_erased(&self, area: Rect, state: &dyn Any) -> Option<(u16, u16)> {
+        let state = state
+            .downcast_ref::<C::State>()
+            .expect("state type mismatch in cursor_position_erased");
+        self.cursor_position(area, state)
     }
 }
 
@@ -77,6 +102,8 @@ pub(crate) struct Node {
     /// Set by the framework to force re-render (e.g., after width change).
     /// Cleared after rendering.
     pub force_dirty: bool,
+    /// The area this node was last rendered into (set by the framework).
+    pub layout_rect: Option<Rect>,
 }
 
 impl Node {
@@ -91,6 +118,7 @@ impl Node {
             children: Vec::new(),
             parent: None,
             force_dirty: false,
+            layout_rect: None,
         }
     }
 
