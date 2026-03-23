@@ -168,13 +168,41 @@ impl<S: Send + 'static> Application<S> {
         }
     }
 
+    /// Run the render loop.
+    ///
+    /// Processes handle updates, ticks active effects, and renders
+    /// automatically. Does not poll terminal events or enable raw
+    /// mode. Exits when all [`Handle`]s are dropped and no effects
+    /// remain, or when [`Handle::exit`] is called.
+    ///
+    /// This is the primary entry point for non-interactive use.
+    /// All state changes flow through the Handle:
+    ///
+    /// ```ignore
+    /// let (mut app, handle) = Application::builder()
+    ///     .state(MyState::new())
+    ///     .view(my_view)
+    ///     .build()?;
+    ///
+    /// tokio::spawn(async move {
+    ///     handle.update(|s| s.message = "hello".into());
+    ///     // handle dropped → app exits when effects stop
+    /// });
+    ///
+    /// app.run().await?;
+    /// ```
+    pub async fn run(&mut self) -> io::Result<()> {
+        let mut stdout = io::stdout();
+        self.render_loop(&mut stdout).await
+    }
+
     /// Run the interactive event loop.
     ///
     /// Enables terminal raw mode and uses `tokio::select!` to
     /// multiplex terminal events, handle updates, and effect ticks.
     /// The handler receives terminal events and mutable state;
     /// return [`ControlFlow::Exit`] to stop. Ctrl+C always exits.
-    pub async fn run(
+    pub async fn run_interactive(
         &mut self,
         mut handler: impl FnMut(&Event, &mut S) -> ControlFlow,
     ) -> io::Result<()> {
@@ -193,25 +221,6 @@ impl<S: Send + 'static> Application<S> {
         writeln!(stdout)?;
 
         result
-    }
-
-    /// Run the tick/render loop until no effects are active.
-    ///
-    /// Useful for non-interactive animations (e.g., spinners that
-    /// complete on their own). Does not poll terminal events or
-    /// enable raw mode. Drains handle updates each frame.
-    pub async fn run_while_active(&mut self, writer: &mut impl Write) -> io::Result<()> {
-        self.flush(writer)?;
-        while self.has_active() {
-            tokio::time::sleep(Duration::from_millis(16)).await;
-            self.tick();
-            self.drain_updates();
-            if self.dirty {
-                self.rebuild();
-            }
-            self.flush_to(writer)?;
-        }
-        Ok(())
     }
 
     // --- Step API ---
@@ -262,6 +271,56 @@ impl<S: Send + 'static> Application<S> {
     }
 
     // --- Internals ---
+
+    async fn render_loop(&mut self, writer: &mut impl Write) -> io::Result<()> {
+        // Initial build + render
+        self.rebuild();
+        self.flush_to(writer)?;
+
+        let mut tick_interval = tokio::time::interval(Duration::from_millis(16));
+        let mut channel_open = true;
+
+        loop {
+            if self.exit.load(Ordering::Acquire) {
+                break;
+            }
+
+            let has_active = self.inline.has_active();
+
+            // Exit when channel closed and no effects remain
+            if !channel_open && !has_active {
+                break;
+            }
+
+            tokio::select! {
+                result = self.rx.recv(), if channel_open => {
+                    match result {
+                        Some(update) => {
+                            update(&mut self.state);
+                            self.dirty = true;
+                        }
+                        None => {
+                            // All Handles dropped
+                            channel_open = false;
+                        }
+                    }
+                }
+                _ = tick_interval.tick(), if has_active => {
+                    self.inline.tick();
+                }
+            }
+
+            if self.dirty {
+                self.rebuild();
+            }
+            self.flush_to(writer)?;
+        }
+
+        // Final flush
+        self.flush_to(writer)?;
+
+        Ok(())
+    }
 
     async fn event_loop(
         &mut self,
@@ -612,7 +671,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn run_while_active_completes() {
+    async fn run_exits_when_handle_dropped_and_idle() {
         let (mut app, handle) = Application::builder()
             .state(true) // show spinner
             .view(|show: &bool| {
@@ -626,14 +685,15 @@ mod tests {
             .build()
             .unwrap();
 
-        // Stop the spinner after a short delay
+        // Stop the spinner after a short delay, then drop handle
         tokio::spawn(async move {
             tokio::time::sleep(Duration::from_millis(100)).await;
             handle.update(|s| *s = false);
+            // handle dropped here
         });
 
         let mut buf = Vec::new();
-        app.run_while_active(&mut buf).await.unwrap();
+        app.render_loop(&mut buf).await.unwrap();
         assert!(!app.has_active());
     }
 

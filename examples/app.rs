@@ -1,11 +1,11 @@
 //! Application wrapper demo.
 //!
 //! Shows the Application API: state ownership, view function,
-//! step API, Handle for async updates, and run_while_active.
+//! Handle for async updates, and automatic render loop.
 //!
 //! Run with: cargo run --example app
 
-use std::io::{self, Write};
+use std::io;
 use std::time::Duration;
 
 use eye_declare::{Application, Elements, SpinnerEl, TextBlockEl};
@@ -48,68 +48,48 @@ async fn main() -> io::Result<()> {
         .view(app_view)
         .build()?;
 
-    let mut stdout = io::stdout();
-
-    // --- Step API: scripted updates ---
-
-    app.update(|s| {
-        s.messages.push((
-            "Application wrapper demo".into(),
-            Style::default()
-                .fg(Color::White)
-                .add_modifier(Modifier::BOLD),
-        ));
-        s.messages.push((
-            "Using the step API for scripted updates".into(),
-            Style::default().fg(Color::DarkGray),
-        ));
-    });
-    app.flush(&mut stdout)?;
-    tokio::time::sleep(Duration::from_millis(800)).await;
-
-    // Add more messages
-    app.update(|s| {
-        s.messages.push((
-            "Starting background work...".into(),
-            Style::default().fg(Color::Yellow),
-        ));
-        s.thinking = true;
-    });
-    app.flush(&mut stdout)?;
-
-    // --- Handle: async task updates ---
-
-    let h = handle.clone();
+    // All updates flow through the handle. The app manages
+    // rendering, ticking, and exits when the handle is dropped
+    // and no effects remain.
     tokio::spawn(async move {
+        handle.update(|s| {
+            s.messages.push((
+                "Application wrapper demo".into(),
+                Style::default()
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD),
+            ));
+            s.messages.push((
+                "Updates flow through the Handle".into(),
+                Style::default().fg(Color::DarkGray),
+            ));
+        });
+
+        tokio::time::sleep(Duration::from_millis(800)).await;
+
+        handle.update(|s| {
+            s.messages.push((
+                "Starting background work...".into(),
+                Style::default().fg(Color::Yellow),
+            ));
+            s.thinking = true;
+        });
+
         tokio::time::sleep(Duration::from_millis(1500)).await;
-        h.update(|s| {
+
+        handle.update(|s| {
             s.thinking = false;
             s.messages.push((
-                "✓ Background work complete (from async task)".into(),
+                "✓ Background work complete".into(),
                 Style::default().fg(Color::Green),
             ));
         });
+
+        // handle dropped here → app exits when effects stop
     });
 
-    // --- run_while_active: animate until effects stop ---
+    app.run().await?;
 
-    // Spinner animates until the async task sets thinking=false,
-    // which removes the spinner element and clears all active effects.
-    app.run_while_active(&mut stdout).await?;
-
-    tokio::time::sleep(Duration::from_millis(1000)).await;
-
-    app.update(|s| {
-        s.thinking = true;
-    });
-
-    app.run_while_active(&mut stdout).await?;
-
-    tokio::time::sleep(Duration::from_millis(3000)).await;
-
-    // Final flush to render the completion message
-    app.flush(&mut stdout)?;
-
-    writeln!(stdout)?;
+    println!();
     Ok(())
 }
