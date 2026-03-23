@@ -467,9 +467,10 @@ impl Renderer {
                 // Guarantee re-render after props update
                 self.nodes[old_id.0].force_dirty = true;
 
-                // Reconcile children recursively
-                if let Some(children) = entry.children {
-                    self.reconcile_children(old_id, children.into_items());
+                // Resolve children: component decides (slot = external children)
+                let resolved = self.resolve_children(old_id, entry.children);
+                if let Some(els) = resolved {
+                    self.reconcile_children(old_id, els.into_items());
                 }
 
                 old_id
@@ -481,8 +482,10 @@ impl Renderer {
                 self.nodes[id.0].width_constraint = entry.width_constraint;
                 self.fire_mount(id);
 
-                if let Some(children) = entry.children {
-                    self.build_elements(id, children);
+                // Resolve children: component decides (slot = external children)
+                let resolved = self.resolve_children(id, entry.children);
+                if let Some(els) = resolved {
+                    self.build_elements(id, els);
                 }
 
                 id
@@ -513,10 +516,20 @@ impl Renderer {
             self.nodes[node_id.0].key = entry.key;
             self.nodes[node_id.0].width_constraint = entry.width_constraint;
             self.fire_mount(node_id);
-            if let Some(children) = entry.children {
-                self.build_elements(node_id, children);
+
+            let resolved = self.resolve_children(node_id, entry.children);
+            if let Some(els) = resolved {
+                self.build_elements(node_id, els);
             }
         }
+    }
+
+    /// Resolve children for a node: pass external slot through the
+    /// component's `children()` method. Returns the final child elements.
+    fn resolve_children(&self, id: NodeId, slot: Option<Elements>) -> Option<Elements> {
+        let node = &self.nodes[id.0];
+        let state = node.state.inner_as_any();
+        node.component.children_erased(state, slot)
     }
 
     /// Tombstone a node and all its descendants without touching the
@@ -2441,5 +2454,231 @@ mod tests {
         assert_eq!(buf[(1, 1)].symbol(), "+");
         // "deep" at (2,2) — offset by both insets
         assert_eq!(buf[(2, 2)].symbol(), "d");
+    }
+
+    // --- Composite children tests ---
+
+    /// A composite component that generates its own children:
+    /// an HStack with a prefix and a text label.
+    struct LabeledRow;
+
+    struct LabeledRowState {
+        prefix: String,
+        label: String,
+    }
+
+    impl Component for LabeledRow {
+        type State = LabeledRowState;
+
+        fn render(&self, _area: Rect, _buf: &mut Buffer, _state: &Self::State) {}
+
+        fn desired_height(&self, _width: u16, _state: &Self::State) -> u16 {
+            0 // children determine height
+        }
+
+        fn initial_state(&self) -> LabeledRowState {
+            LabeledRowState {
+                prefix: String::new(),
+                label: String::new(),
+            }
+        }
+
+        fn children(
+            &self,
+            state: &Self::State,
+            _slot: Option<Elements>,
+        ) -> Option<Elements> {
+            // Ignore slot — generate own children
+            let mut row = Elements::new();
+            row.add(TestTextEl::new(&state.prefix))
+                .width(WidthConstraint::Fixed(2));
+            row.add(TestTextEl::new(&state.label));
+
+            let mut els = Elements::new();
+            els.hstack(row);
+            Some(els)
+        }
+    }
+
+    /// Element for LabeledRow.
+    struct LabeledRowEl {
+        prefix: String,
+        label: String,
+    }
+
+    impl LabeledRowEl {
+        fn new(prefix: &str, label: &str) -> Self {
+            Self {
+                prefix: prefix.to_string(),
+                label: label.to_string(),
+            }
+        }
+    }
+
+    impl Element for LabeledRowEl {
+        fn build(self: Box<Self>, renderer: &mut Renderer, parent: NodeId) -> NodeId {
+            let id = renderer.append_child(parent, LabeledRow);
+            renderer.set_layout(id, crate::node::Layout::Horizontal);
+            let state = renderer.state_mut::<LabeledRow>(id);
+            state.prefix = self.prefix;
+            state.label = self.label;
+            id
+        }
+
+        fn update(self: Box<Self>, renderer: &mut Renderer, node_id: NodeId) {
+            let state = renderer.state_mut::<LabeledRow>(node_id);
+            state.prefix = self.prefix;
+            state.label = self.label;
+        }
+    }
+
+    #[test]
+    fn composite_generates_own_children() {
+        let mut r = Renderer::new(20);
+        let container = r.push(VStack);
+
+        let mut els = Elements::new();
+        els.add(LabeledRowEl::new(">", "hello"));
+        r.rebuild(container, els);
+
+        let frame = r.render();
+        assert_eq!(frame.area().height, 1);
+
+        let buf = frame.buffer();
+        assert_eq!(buf[(0, 0)].symbol(), ">");
+        assert_eq!(buf[(2, 0)].symbol(), "h"); // "hello" at x=2
+    }
+
+    #[test]
+    fn composite_children_reconciled_across_rebuilds() {
+        let mut r = Renderer::new(20);
+        let container = r.push(VStack);
+
+        // First build
+        let mut els = Elements::new();
+        els.add(LabeledRowEl::new(">", "v1")).key("row");
+        r.rebuild(container, els);
+
+        let row_id = r.find_by_key(container, "row").unwrap();
+
+        // Rebuild — composite is reused, children regenerated
+        let mut els = Elements::new();
+        els.add(LabeledRowEl::new("$", "v2")).key("row");
+        r.rebuild(container, els);
+
+        // Same row node reused
+        assert_eq!(r.find_by_key(container, "row").unwrap(), row_id);
+
+        let frame = r.render();
+        let buf = frame.buffer();
+        assert_eq!(buf[(0, 0)].symbol(), "$"); // prefix updated
+        assert_eq!(buf[(2, 0)].symbol(), "v"); // label updated
+    }
+
+    #[test]
+    fn default_passthrough_still_works() {
+        // VStack uses default children() which returns slot
+        let mut r = Renderer::new(10);
+        let container = r.push(VStack);
+
+        let mut inner = Elements::new();
+        inner.add(TestTextEl::new("child1"));
+        inner.add(TestTextEl::new("child2"));
+
+        let mut els = Elements::new();
+        els.add_with_children(crate::elements::VStackEl, inner);
+        r.rebuild(container, els);
+
+        let frame = r.render();
+        assert_eq!(frame.area().height, 2);
+        assert_eq!(frame.buffer()[(0, 0)].symbol(), "c"); // "child1"
+        assert_eq!(frame.buffer()[(0, 1)].symbol(), "c"); // "child2"
+    }
+
+    /// A wrapper component that accepts slot children and adds a header.
+    struct BannerComponent;
+
+    impl Component for BannerComponent {
+        type State = String; // banner title
+
+        fn render(&self, _area: Rect, _buf: &mut Buffer, _state: &Self::State) {}
+        fn desired_height(&self, _width: u16, _state: &Self::State) -> u16 { 0 }
+        fn initial_state(&self) -> String { String::new() }
+
+        fn children(
+            &self,
+            state: &Self::State,
+            slot: Option<Elements>,
+        ) -> Option<Elements> {
+            let mut els = Elements::new();
+            // Add banner title
+            els.add(TestTextEl::new(state));
+            // Include slot children
+            if let Some(slot) = slot {
+                for _entry in slot.into_items() {
+                    // Re-wrap each entry
+                    els.add(TestTextEl::new("slot"));
+                }
+            }
+            Some(els)
+        }
+    }
+
+    struct BannerEl { title: String }
+
+    impl Element for BannerEl {
+        fn build(self: Box<Self>, renderer: &mut Renderer, parent: NodeId) -> NodeId {
+            let id = renderer.append_child(parent, BannerComponent);
+            let state = renderer.state_mut::<BannerComponent>(id);
+            state.push_str(&self.title);
+            id
+        }
+
+        fn update(self: Box<Self>, renderer: &mut Renderer, node_id: NodeId) {
+            let state = renderer.state_mut::<BannerComponent>(node_id);
+            state.clear();
+            state.push_str(&self.title);
+        }
+    }
+
+    #[test]
+    fn composite_wraps_slot_children() {
+        let mut r = Renderer::new(20);
+        let container = r.push(VStack);
+
+        let mut slot = Elements::new();
+        slot.add(TestTextEl::new("content"));
+
+        let mut els = Elements::new();
+        els.add_with_children(BannerEl { title: "TITLE".into() }, slot);
+        r.rebuild(container, els);
+
+        let frame = r.render();
+        // Should have: TITLE + slot placeholder
+        assert_eq!(frame.area().height, 2);
+        assert_eq!(frame.buffer()[(0, 0)].symbol(), "T"); // "TITLE"
+        assert_eq!(frame.buffer()[(0, 1)].symbol(), "s"); // "slot" (wrapper)
+    }
+
+    #[test]
+    fn nested_composites() {
+        let mut r = Renderer::new(20);
+        let container = r.push(VStack);
+
+        // A LabeledRow (composite) inside a VStack
+        let mut els = Elements::new();
+        els.add(TestTextEl::new("above"));
+        els.add(LabeledRowEl::new(">", "nested"));
+        els.add(TestTextEl::new("below"));
+        r.rebuild(container, els);
+
+        let frame = r.render();
+        assert_eq!(frame.area().height, 3);
+
+        let buf = frame.buffer();
+        assert_eq!(buf[(0, 0)].symbol(), "a"); // "above"
+        assert_eq!(buf[(0, 1)].symbol(), ">"); // prefix
+        assert_eq!(buf[(2, 1)].symbol(), "n"); // "nested" at x=2
+        assert_eq!(buf[(0, 2)].symbol(), "b"); // "below"
     }
 }

@@ -2,6 +2,7 @@ use std::ops::{Deref, DerefMut};
 
 use ratatui_core::{buffer::Buffer, layout::Rect};
 
+use crate::element::Elements;
 use crate::insets::Insets;
 
 /// Result of handling an input event.
@@ -116,6 +117,26 @@ pub trait Component: Send + Sync + 'static {
     /// Default: [`Insets::ZERO`] (children get the full area).
     fn content_inset(&self, _state: &Self::State) -> Insets {
         Insets::ZERO
+    }
+
+    /// Return child elements for this component.
+    ///
+    /// The `slot` parameter contains externally-provided children
+    /// (from `add_with_children`). The component decides what to do:
+    ///
+    /// - **Pass through (default):** Return `slot`. Layout containers
+    ///   like VStack/HStack use this — they accept external children.
+    /// - **Generate own tree:** Ignore slot, return custom Elements.
+    ///   A Spinner generates its own HStack with frame + label.
+    /// - **Wrap slot:** Incorporate slot into a larger tree. A Banner
+    ///   wraps slot children in a header + content layout.
+    /// - **No children:** Return None for a pure leaf component.
+    fn children(
+        &self,
+        _state: &Self::State,
+        slot: Option<Elements>,
+    ) -> Option<Elements> {
+        slot
     }
 }
 

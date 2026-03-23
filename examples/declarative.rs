@@ -53,7 +53,8 @@ fn chat_view(state: &AppState) -> Elements {
 
     // Show tool call spinner if active (auto-animates via tick registration)
     if let Some(ref tool) = state.tool_running {
-        els.add(SpinnerEl::new(format!("Running {}...", tool))).key("tool");
+        els.add(SpinnerEl::new(format!("Running {}...", tool)))
+            .key("tool");
     }
 
     // Separator at the bottom
@@ -101,7 +102,7 @@ fn main() -> io::Result<()> {
          \x20   None\n\
          }\n\
          ```"
-            .to_string(),
+        .to_string(),
     );
     r.rebuild(container, chat_view(&state));
     flush(&mut r, &mut stdout)?;
