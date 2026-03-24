@@ -1,7 +1,9 @@
 [package]
 name = "eye_declare"
+description = "Declarative inline TUI rendering library for Rust"
 version = "0.1.0"
 edition = "2024"
+license = "MIT"
 
 [dependencies]
 ratatui-core = "0.1"

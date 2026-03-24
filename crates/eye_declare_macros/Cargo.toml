@@ -1,7 +1,9 @@
 [package]
 name = "eye_declare_macros"
+description = "Macros for eye_declare"
 version = "0.1.0"
 edition = "2024"
+license = "MIT"
 
 [lib]
 proc-macro = true
