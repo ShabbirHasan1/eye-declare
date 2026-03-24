@@ -380,8 +380,10 @@ mod tests {
         type State = Vec<String>;
 
         fn render(&self, area: Rect, buf: &mut Buffer, state: &Self::State) {
-            let lines: Vec<ratatui_core::text::Line> =
-                state.iter().map(|s| ratatui_core::text::Line::raw(s.as_str())).collect();
+            let lines: Vec<ratatui_core::text::Line> = state
+                .iter()
+                .map(|s| ratatui_core::text::Line::raw(s.as_str()))
+                .collect();
             let para = Paragraph::new(lines);
             ratatui_core::widgets::Widget::render(para, area, buf);
         }
@@ -390,8 +392,8 @@ mod tests {
             state.len() as u16
         }
 
-        fn initial_state(&self) -> Vec<String> {
-            vec![]
+        fn initial_state(&self) -> Option<Vec<String>> {
+            Some(vec![])
         }
     }
 

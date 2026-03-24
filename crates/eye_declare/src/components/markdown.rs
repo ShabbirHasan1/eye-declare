@@ -94,8 +94,8 @@ impl Component for Markdown {
         wrap::wrapped_line_count(&text, width)
     }
 
-    fn initial_state(&self) -> MarkdownState {
-        MarkdownState::new()
+    fn initial_state(&self) -> Option<MarkdownState> {
+        Some(MarkdownState::new())
     }
 }
 
@@ -151,9 +151,7 @@ fn render_markdown<'a>(source: &str, styles: &MarkdownState) -> Text<'static> {
             let content = &line[2..];
             lines.push(Line::from(Span::styled(
                 content.to_string(),
-                styles
-                    .heading_style
-                    .add_modifier(Modifier::UNDERLINED),
+                styles.heading_style.add_modifier(Modifier::UNDERLINED),
             )));
             continue;
         }
@@ -169,10 +167,7 @@ fn render_markdown<'a>(source: &str, styles: &MarkdownState) -> Text<'static> {
 
         if let Some(prefix) = list_prefix {
             let content = &line[prefix.len()..];
-            let mut spans = vec![Span::styled(
-                prefix.to_string(),
-                styles.marker_style,
-            )];
+            let mut spans = vec![Span::styled(prefix.to_string(), styles.marker_style)];
             spans.extend(parse_inline_formatting(content, styles));
             lines.push(Line::from(spans));
             continue;
@@ -297,33 +292,35 @@ mod tests {
     #[test]
     fn empty_markdown() {
         let md = Markdown::new("");
-        let state = md.initial_state();
+        let state = md.initial_state().unwrap();
         assert_eq!(md.desired_height(80, &state), 0);
     }
 
     #[test]
     fn plain_text() {
         let md = Markdown::new("Hello world");
-        let state = md.initial_state();
+        let state = md.initial_state().unwrap();
         assert_eq!(md.desired_height(80, &state), 1);
     }
 
     #[test]
     fn heading_renders() {
         let md = Markdown::new("# Title");
-        let state = md.initial_state();
+        let state = md.initial_state().unwrap();
         let text = render_markdown(&md.source, &state);
         assert_eq!(text.lines.len(), 1);
-        assert!(text.lines[0]
-            .spans
-            .iter()
-            .any(|s| s.content.contains("Title")));
+        assert!(
+            text.lines[0]
+                .spans
+                .iter()
+                .any(|s| s.content.contains("Title"))
+        );
     }
 
     #[test]
     fn code_block_indented() {
         let md = Markdown::new("```rust\nfn main() {}\n```");
-        let state = md.initial_state();
+        let state = md.initial_state().unwrap();
         let text = render_markdown(&md.source, &state);
         // Should have language hint + code line
         assert!(text.lines.len() >= 2);
@@ -334,7 +331,7 @@ mod tests {
     #[test]
     fn inline_bold() {
         let md = Markdown::new("This is **bold** text");
-        let state = md.initial_state();
+        let state = md.initial_state().unwrap();
         let text = render_markdown(&md.source, &state);
         let spans = &text.lines[0].spans;
         // Should have at least 3 spans: "This is ", "bold", " text"
@@ -347,7 +344,7 @@ mod tests {
     #[test]
     fn inline_italic() {
         let md = Markdown::new("This is *italic* text");
-        let state = md.initial_state();
+        let state = md.initial_state().unwrap();
         let text = render_markdown(&md.source, &state);
         let spans = &text.lines[0].spans;
         let italic_span = spans.iter().find(|s| s.content.contains("italic")).unwrap();
@@ -357,7 +354,7 @@ mod tests {
     #[test]
     fn inline_code() {
         let md = Markdown::new("Use `println!` here");
-        let state = md.initial_state();
+        let state = md.initial_state().unwrap();
         let text = render_markdown(&md.source, &state);
         let spans = &text.lines[0].spans;
         let code_span = spans
@@ -370,7 +367,7 @@ mod tests {
     #[test]
     fn list_items() {
         let md = Markdown::new("- item one\n- item two");
-        let state = md.initial_state();
+        let state = md.initial_state().unwrap();
         let text = render_markdown(&md.source, &state);
         assert_eq!(text.lines.len(), 2);
     }
@@ -378,10 +375,14 @@ mod tests {
     #[test]
     fn unclosed_markers_render_as_text() {
         let md = Markdown::new("This has an unclosed **bold");
-        let state = md.initial_state();
+        let state = md.initial_state().unwrap();
         let text = render_markdown(&md.source, &state);
         // Should render without panic, showing ** as literal text
-        let full_text: String = text.lines[0].spans.iter().map(|s| s.content.as_ref()).collect();
+        let full_text: String = text.lines[0]
+            .spans
+            .iter()
+            .map(|s| s.content.as_ref())
+            .collect();
         assert!(full_text.contains("**bold"));
     }
 
@@ -390,7 +391,7 @@ mod tests {
         let md = Markdown::new(
             "# Welcome\n\nThis is **bold** and *italic* with `code`.\n\n```\nlet x = 1;\n```\n\n- item",
         );
-        let state = md.initial_state();
+        let state = md.initial_state().unwrap();
         let text = render_markdown(&md.source, &state);
         // Should have: heading, blank, paragraph, blank, code, blank, list item
         assert!(text.lines.len() >= 5);
@@ -401,7 +402,7 @@ mod tests {
         let md = Markdown::new(
             "This is a long paragraph that should wrap when rendered at a narrow width.",
         );
-        let state = md.initial_state();
+        let state = md.initial_state().unwrap();
         let height_wide = md.desired_height(80, &state);
         let height_narrow = md.desired_height(20, &state);
         assert_eq!(height_wide, 1);

@@ -110,8 +110,8 @@ impl Component for Spinner {
         1
     }
 
-    fn initial_state(&self) -> SpinnerState {
-        SpinnerState::new()
+    fn initial_state(&self) -> Option<SpinnerState> {
+        Some(SpinnerState::new())
     }
 
     fn lifecycle(&self, hooks: &mut Hooks<SpinnerState>, _state: &SpinnerState) {
@@ -128,14 +128,14 @@ mod tests {
     #[test]
     fn spinner_height_is_one() {
         let spinner = Spinner::new("Loading...");
-        let state = spinner.initial_state();
+        let state = spinner.initial_state().unwrap();
         assert_eq!(spinner.desired_height(80, &state), 1);
     }
 
     #[test]
     fn spinner_renders_frame() {
         let spinner = Spinner::new("Loading...");
-        let state = spinner.initial_state();
+        let state = spinner.initial_state().unwrap();
         let area = Rect::new(0, 0, 20, 1);
         let mut buf = Buffer::empty(area);
         spinner.render(area, &mut buf, &state);
@@ -145,7 +145,7 @@ mod tests {
     #[test]
     fn spinner_done_shows_checkmark() {
         let spinner = Spinner::new("Loading...").done("Done!");
-        let state = spinner.initial_state();
+        let state = spinner.initial_state().unwrap();
         let area = Rect::new(0, 0, 20, 1);
         let mut buf = Buffer::empty(area);
         spinner.render(area, &mut buf, &state);

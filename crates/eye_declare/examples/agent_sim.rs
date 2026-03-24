@@ -59,13 +59,13 @@ impl Component for Spinner {
         1
     }
 
-    fn initial_state(&self) -> SpinnerState {
-        SpinnerState {
+    fn initial_state(&self) -> Option<SpinnerState> {
+        Some(SpinnerState {
             label: String::new(),
             frame: 0,
             done: false,
             done_label: None,
-        }
+        })
     }
 }
 
@@ -103,12 +103,12 @@ impl Component for StreamingText {
         }
     }
 
-    fn initial_state(&self) -> StreamingState {
-        StreamingState {
+    fn initial_state(&self) -> Option<StreamingState> {
+        Some(StreamingState {
             tokens: vec![],
             revealed: 0,
             style: Style::default(),
-        }
+        })
     }
 }
 
@@ -127,8 +127,8 @@ impl Component for StaticLine {
         if state.0.is_empty() { 0 } else { 1 }
     }
 
-    fn initial_state(&self) -> (String, Style) {
-        (String::new(), Style::default())
+    fn initial_state(&self) -> Option<(String, Style)> {
+        Some((String::new(), Style::default()))
     }
 }
 

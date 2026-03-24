@@ -10,9 +10,7 @@ use std::io::{self, Write};
 use std::thread;
 use std::time::Duration;
 
-use eye_declare::{
-    Component, Elements, Hooks, InlineRenderer, Spinner, TextBlock, VStack,
-};
+use eye_declare::{Component, Elements, Hooks, InlineRenderer, Spinner, TextBlock, VStack};
 use ratatui_core::{
     buffer::Buffer,
     layout::Rect,
@@ -63,7 +61,7 @@ impl Component for StatusLog {
         state.entries.len() as u16
     }
 
-    fn initial_state(&self) -> StatusLogState {
+    fn initial_state(&self) -> Option<StatusLogState> {
         let mut state = StatusLogState {
             entries: Vec::new(),
         };
@@ -73,7 +71,7 @@ impl Component for StatusLog {
                 Style::default().fg(Color::DarkGray),
             );
         }
-        state
+        Some(state)
     }
 
     fn lifecycle(&self, hooks: &mut Hooks<StatusLogState>, _state: &StatusLogState) {
@@ -113,12 +111,14 @@ struct AppState {
 fn task_view(state: &AppState) -> Elements {
     let mut els = Elements::new();
 
-    els.add(TextBlock::new().line(
-        format!("Tasks ({})", state.tasks.len()),
-        Style::default()
-            .fg(Color::White)
-            .add_modifier(Modifier::BOLD),
-    ));
+    els.add(
+        TextBlock::new().line(
+            format!("Tasks ({})", state.tasks.len()),
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
+        ),
+    );
 
     for task in &state.tasks {
         els.add(StatusLog::new(task)).key(task.clone());

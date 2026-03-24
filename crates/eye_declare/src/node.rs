@@ -45,7 +45,7 @@ pub(crate) trait AnyComponent: Send + Sync {
     fn is_focusable_erased(&self, state: &dyn Any) -> bool;
     fn content_inset_erased(&self, state: &dyn Any) -> Insets;
     fn children_erased(&self, state: &dyn Any, slot: Option<Elements>) -> Option<Elements>;
-    fn lifecycle_erased(&self, state: &dyn Any) -> Vec<Effect>;
+    fn lifecycle_erased(&self, state: &dyn Any) -> LifecycleOutput;
     /// Downcast to concrete type for reading props.
     fn as_any_component(&self) -> &dyn Any;
 }
@@ -105,13 +105,17 @@ impl<C: Component> AnyComponent for C {
         self.children(state, slot)
     }
 
-    fn lifecycle_erased(&self, state: &dyn Any) -> Vec<Effect> {
+    fn lifecycle_erased(&self, state: &dyn Any) -> LifecycleOutput {
         let state = state
             .downcast_ref::<C::State>()
             .expect("state type mismatch in lifecycle_erased");
         let mut hooks = Hooks::<C::State>::new();
         self.lifecycle(&mut hooks, state);
-        hooks.into_effects()
+        let autofocus = hooks.autofocus();
+        LifecycleOutput {
+            effects: hooks.into_effects(),
+            autofocus,
+        }
     }
 
     fn as_any_component(&self) -> &dyn Any {
@@ -180,11 +184,20 @@ impl<S: Send + Sync + 'static> AnyEffectHandler for TypedEffectHandler<S> {
 /// What kind of effect this is, and when it should fire.
 pub(crate) enum EffectKind {
     /// Periodic callback. Fires when interval elapses during `tick()`.
-    Interval { interval: Duration, last_tick: Instant },
+    Interval {
+        interval: Duration,
+        last_tick: Instant,
+    },
     /// One-shot callback. Fires after element build completes.
     OnMount,
     /// One-shot callback. Fires when node is tombstoned.
     OnUnmount,
+}
+
+/// Output of a lifecycle() call.
+pub(crate) struct LifecycleOutput {
+    pub effects: Vec<Effect>,
+    pub autofocus: bool,
 }
 
 /// A registered effect for a node.
@@ -216,14 +229,20 @@ pub(crate) struct Node {
     pub layout: Layout,
     /// Width constraint for this node within a horizontal parent.
     pub width_constraint: WidthConstraint,
+    /// Whether this node should receive focus on mount.
+    pub autofocus: bool,
 }
 
 impl Node {
     pub fn new<C: Component>(component: C) -> Self {
-        let state = Tracked::new(component.initial_state());
+        let state: Box<dyn AnyTrackedState> = match component.initial_state() {
+            Some(state) => Box::new(Tracked::new(state)),
+            None => Box::new(Tracked::new(())),
+        };
+
         Self {
             component: Box::new(component),
-            state: Box::new(state),
+            state,
             frozen: false,
             cached_buffer: None,
             last_height: None,
@@ -235,6 +254,7 @@ impl Node {
             key: None,
             layout: Layout::default(),
             width_constraint: WidthConstraint::default(),
+            autofocus: false,
         }
     }
 

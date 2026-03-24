@@ -108,7 +108,9 @@ pub trait Component: Send + Sync + 'static {
     }
 
     /// Create the initial state for this component.
-    fn initial_state(&self) -> Self::State;
+    fn initial_state(&self) -> Option<Self::State> {
+        None
+    }
 
     /// Insets for the content area within this component's render area.
     ///
@@ -151,11 +153,7 @@ pub trait Component: Send + Sync + 'static {
     /// - **Wrap slot:** Incorporate slot into a larger tree. A Banner
     ///   wraps slot children in a header + content layout.
     /// - **No children:** Return None for a pure leaf component.
-    fn children(
-        &self,
-        _state: &Self::State,
-        slot: Option<Elements>,
-    ) -> Option<Elements> {
+    fn children(&self, _state: &Self::State, slot: Option<Elements>) -> Option<Elements> {
         slot
     }
 }
@@ -175,8 +173,6 @@ impl Component for VStack {
     fn desired_height(&self, _width: u16, _state: &()) -> u16 {
         0
     }
-
-    fn initial_state(&self) -> () {}
 }
 
 /// A no-op container component for horizontal layout.
@@ -196,8 +192,6 @@ impl Component for HStack {
     fn desired_height(&self, _width: u16, _state: &()) -> u16 {
         0
     }
-
-    fn initial_state(&self) -> () {}
 
     fn layout(&self) -> Layout {
         Layout::Horizontal

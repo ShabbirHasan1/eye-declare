@@ -4,6 +4,10 @@ A declarative inline TUI rendering library for Rust, built on [ratatui](https://
 
 eye_declare provides a React-like component model for building terminal UIs that render inline (growing into terminal scrollback) rather than taking over the full screen. Designed for CLI tools, AI assistants, and interactive prompts.
 
+## Status
+
+eye_declare is in early development; expect breaking changes
+
 ## Quick Start
 
 ```rust
@@ -50,7 +54,7 @@ async fn main() -> std::io::Result<()> {
 
 ### Component Model
 
-Components carry their props directly and get automatic reconciliation. No separate "element" types needed.
+Components carry their props directly and get automatic reconciliation.
 
 ```rust
 use eye_declare::Component;

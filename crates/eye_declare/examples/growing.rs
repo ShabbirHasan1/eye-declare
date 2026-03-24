@@ -30,8 +30,8 @@ impl Component for MessageList {
         state.len() as u16
     }
 
-    fn initial_state(&self) -> Vec<(String, Style)> {
-        vec![]
+    fn initial_state(&self) -> Option<Vec<(String, Style)>> {
+        Some(vec![])
     }
 }
 
@@ -41,14 +41,30 @@ fn main() -> io::Result<()> {
     let id = renderer.push(MessageList);
 
     let messages = vec![
-        ("Thinking...", Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC)),
-        ("Analyzing your codebase...", Style::default().fg(Color::Cyan)),
+        (
+            "Thinking...",
+            Style::default()
+                .fg(Color::DarkGray)
+                .add_modifier(Modifier::ITALIC),
+        ),
+        (
+            "Analyzing your codebase...",
+            Style::default().fg(Color::Cyan),
+        ),
         ("Found 3 relevant files.", Style::default().fg(Color::Green)),
         ("  src/lib.rs", Style::default().fg(Color::DarkGray)),
         ("  src/main.rs", Style::default().fg(Color::DarkGray)),
         ("  src/config.rs", Style::default().fg(Color::DarkGray)),
-        ("Generating implementation plan...", Style::default().fg(Color::Cyan)),
-        ("Done!", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+        (
+            "Generating implementation plan...",
+            Style::default().fg(Color::Cyan),
+        ),
+        (
+            "Done!",
+            Style::default()
+                .fg(Color::Green)
+                .add_modifier(Modifier::BOLD),
+        ),
     ];
 
     for (text, style) in messages {

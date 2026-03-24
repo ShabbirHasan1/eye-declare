@@ -80,6 +80,10 @@ struct InputBox {
 impl Component for InputBox {
     type State = ();
 
+    fn lifecycle(&self, hooks: &mut Hooks<Self::State>, _state: &Self::State) {
+        hooks.use_autofocus();
+    }
+
     fn render(&self, area: Rect, buf: &mut Buffer, _state: &()) {
         if area.height < 3 || area.width < 4 {
             return;
@@ -92,16 +96,19 @@ impl Component for InputBox {
         let label = format!(" {} ", self.prompt);
         let label_width = label.len() as u16;
         let top_right_dashes = w.saturating_sub(3 + label_width);
-        let top_line = format!(
-            "┌─{}{}┐",
-            label,
-            "─".repeat(top_right_dashes as usize),
+        let top_line = format!("┌─{}{}┐", label, "─".repeat(top_right_dashes as usize),);
+        buf.set_string(
+            area.x,
+            area.y,
+            &top_line,
+            Style::default().fg(Color::DarkGray),
         );
-        buf.set_string(area.x, area.y, &top_line, Style::default().fg(Color::DarkGray));
         // Highlight the label
         buf.set_style(
             Rect::new(area.x + 2, area.y, label_width, 1),
-            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
         );
 
         // Bottom border
@@ -116,22 +123,24 @@ impl Component for InputBox {
         // Side borders
         for y in (area.y + 1)..(area.y + h - 1) {
             buf.set_string(area.x, y, "│", Style::default().fg(Color::DarkGray));
-            buf.set_string(
-                area.x + w - 1,
-                y,
-                "│",
-                Style::default().fg(Color::DarkGray),
-            );
+            buf.set_string(area.x + w - 1, y, "│", Style::default().fg(Color::DarkGray));
         }
 
         // Text content inside border
-        let inner = Rect::new(area.x + 2, area.y + 1, w.saturating_sub(4), h.saturating_sub(2));
+        let inner = Rect::new(
+            area.x + 2,
+            area.y + 1,
+            w.saturating_sub(4),
+            h.saturating_sub(2),
+        );
         if inner.width > 0 && inner.height > 0 {
             let text_style = Style::default().fg(Color::White);
             let display = if self.text.is_empty() {
                 Line::from(Span::styled(
                     "Type a message...",
-                    Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC),
+                    Style::default()
+                        .fg(Color::DarkGray)
+                        .add_modifier(Modifier::ITALIC),
                 ))
             } else {
                 Line::from(Span::styled(&self.text, text_style))
@@ -166,8 +175,6 @@ impl Component for InputBox {
         // Events handled by the app handler, not here
         eye_declare::EventResult::Ignored
     }
-
-    fn initial_state(&self) -> () {}
 }
 
 // ---------------------------------------------------------------------------
@@ -191,10 +198,7 @@ impl Component for StreamingDots {
             2 => ".. ",
             _ => "...",
         };
-        let line = Line::from(Span::styled(
-            dots,
-            Style::default().fg(Color::DarkGray),
-        ));
+        let line = Line::from(Span::styled(dots, Style::default().fg(Color::DarkGray)));
         Paragraph::new(line).render(area, buf);
     }
 
@@ -202,8 +206,8 @@ impl Component for StreamingDots {
         1
     }
 
-    fn initial_state(&self) -> StreamingDotsState {
-        StreamingDotsState { frame: 0 }
+    fn initial_state(&self) -> Option<StreamingDotsState> {
+        Some(StreamingDotsState { frame: 0 })
     }
 
     fn lifecycle(&self, hooks: &mut Hooks<StreamingDotsState>, _state: &StreamingDotsState) {
@@ -352,11 +356,11 @@ async fn main() -> io::Result<()> {
     app.update(|_| {});
     app.flush(&mut io::stdout())?;
     // Find and focus the input
-    let renderer = app.renderer();
-    let container = renderer.children(renderer.root())[0];
-    if let Some(input_id) = renderer.find_by_key(container, "input") {
-        renderer.set_focus(input_id);
-    }
+    // let renderer = app.renderer();
+    // let container = renderer.children(renderer.root())[0];
+    // if let Some(input_id) = renderer.find_by_key(container, "input") {
+    //     renderer.set_focus(input_id);
+    // }
 
     let h = handle;
     app.run_interactive(move |event, state| {

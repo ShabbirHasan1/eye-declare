@@ -1,10 +1,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::time::{Duration, Instant};
 
-use ratatui_core::{
-    buffer::Buffer,
-    layout::Rect,
-};
+use ratatui_core::{buffer::Buffer, layout::Rect};
 
 use crate::component::{Component, EventResult, Tracked, VStack};
 use crate::element::{ElementEntry, Elements};
@@ -37,7 +34,14 @@ impl Renderer {
         nodes.push(Node::new(VStack));
         // Root starts clean since VStack has no visible content
         nodes[0].state.clear_dirty();
-        Self { nodes, root, width, focused: None, cursor_hint: None, effects: HashMap::new() }
+        Self {
+            nodes,
+            root,
+            width,
+            focused: None,
+            cursor_hint: None,
+            effects: HashMap::new(),
+        }
     }
 
     /// The root node's ID.
@@ -222,7 +226,11 @@ impl Renderer {
         let next_idx = match current_idx {
             Some(idx) => {
                 if reverse {
-                    if idx == 0 { focusable.len() - 1 } else { idx - 1 }
+                    if idx == 0 {
+                        focusable.len() - 1
+                    } else {
+                        idx - 1
+                    }
                 } else {
                     (idx + 1) % focusable.len()
                 }
@@ -365,7 +373,11 @@ impl Renderer {
         let mut due: Vec<(NodeId, usize)> = Vec::new();
         for (&id, effects) in &self.effects {
             for (idx, effect) in effects.iter().enumerate() {
-                if let EffectKind::Interval { last_tick, interval } = &effect.kind {
+                if let EffectKind::Interval {
+                    last_tick,
+                    interval,
+                } = &effect.kind
+                {
                     if now.duration_since(*last_tick) >= *interval {
                         due.push((id, idx));
                     }
@@ -381,10 +393,15 @@ impl Renderer {
             // Remove the effect, call handler, reinsert with updated last_tick
             let mut effects = self.effects.remove(&id).unwrap();
             let effect = &mut effects[idx];
-            if let EffectKind::Interval { ref mut last_tick, .. } = effect.kind {
+            if let EffectKind::Interval {
+                ref mut last_tick, ..
+            } = effect.kind
+            {
                 *last_tick = now;
             }
-            effects[idx].handler.call(self.nodes[id.0].state.as_any_mut());
+            effects[idx]
+                .handler
+                .call(self.nodes[id.0].state.as_any_mut());
             self.effects.insert(id, effects);
         }
 
@@ -394,12 +411,19 @@ impl Renderer {
     /// Whether there are any active tick registrations.
     pub fn has_active(&self) -> bool {
         self.effects.values().any(|effects| {
-            effects.iter().any(|e| matches!(e.kind, EffectKind::Interval { .. }))
+            effects
+                .iter()
+                .any(|e| matches!(e.kind, EffectKind::Interval { .. }))
         })
     }
 
     /// Fire and remove all OnMount effects for a node.
     fn fire_mount(&mut self, id: NodeId) {
+        // Autofocus: set focus when this node mounts
+        if self.nodes[id.0].autofocus {
+            self.focused = Some(id);
+        }
+
         if let Some(effects) = self.effects.remove(&id) {
             // Extract mount handlers, keep the rest
             let (mounts, remaining): (Vec<_>, Vec<_>) = effects
@@ -461,9 +485,7 @@ impl Renderer {
             let matched = if let Some(ref key) = entry.key {
                 // Keyed: match by key + type
                 match old_by_key.remove(key) {
-                    Some(old_id)
-                        if self.nodes[old_id.0].element_type_id == Some(entry.type_id) =>
-                    {
+                    Some(old_id) if self.nodes[old_id.0].element_type_id == Some(entry.type_id) => {
                         Some(old_id)
                     }
                     Some(old_id) => {
@@ -572,15 +594,16 @@ impl Renderer {
     /// are replaced with the new set. Otherwise effects are untouched
     /// (backward compatibility with imperative registration).
     fn apply_lifecycle(&mut self, id: NodeId) {
-        let effects = {
+        let output = {
             let node = &self.nodes[id.0];
             node.component.lifecycle_erased(node.state.inner_as_any())
         };
-        if effects.is_empty() {
+        if output.effects.is_empty() {
             self.effects.remove(&id);
         } else {
-            self.effects.insert(id, effects);
+            self.effects.insert(id, output.effects);
         }
+        self.nodes[id.0].autofocus = output.autofocus;
     }
 
     /// Tombstone a node and all its descendants without touching the
@@ -651,10 +674,7 @@ impl Renderer {
                     node.component.cursor_position_erased(layout_rect, state)
                 {
                     // Convert to absolute buffer coordinates
-                    self.cursor_hint = Some((
-                        layout_rect.x + rel_col,
-                        layout_rect.y + rel_row,
-                    ));
+                    self.cursor_hint = Some((layout_rect.x + rel_col, layout_rect.y + rel_row));
                 }
             }
         }
@@ -677,16 +697,17 @@ impl Renderer {
         }
 
         if node.is_container() {
-            let insets = node.component.content_inset_erased(node.state.inner_as_any());
+            let insets = node
+                .component
+                .content_inset_erased(node.state.inner_as_any());
             let inner_width = width.saturating_sub(insets.horizontal());
 
             let children_height = match node.layout {
-                Layout::Vertical => {
-                    node.children
-                        .iter()
-                        .map(|&child| self.measure_height(child, inner_width))
-                        .sum()
-                }
+                Layout::Vertical => node
+                    .children
+                    .iter()
+                    .map(|&child| self.measure_height(child, inner_width))
+                    .sum(),
                 Layout::Horizontal => {
                     let constraints: Vec<WidthConstraint> = node
                         .children
@@ -735,7 +756,9 @@ impl Renderer {
         if is_container {
             // Render the container's own component first (background/border/chrome)
             let state = self.nodes[id.0].state.inner_as_any();
-            self.nodes[id.0].component.render_erased(area, buffer, state);
+            self.nodes[id.0]
+                .component
+                .render_erased(area, buffer, state);
 
             // Compute inner area for children using content insets
             let insets = self.nodes[id.0]
@@ -759,8 +782,7 @@ impl Renderer {
                         if child_height == 0 {
                             continue;
                         }
-                        let child_area =
-                            Rect::new(inner.x, y_offset, inner.width, child_height);
+                        let child_area = Rect::new(inner.x, y_offset, inner.width, child_height);
                         self.render_node(*child_id, child_area, buffer);
                         y_offset = y_offset.saturating_add(child_height);
                     }
@@ -776,8 +798,7 @@ impl Renderer {
                         if child_width == 0 {
                             continue;
                         }
-                        let child_area =
-                            Rect::new(x_offset, inner.y, child_width, inner.height);
+                        let child_area = Rect::new(x_offset, inner.y, child_width, inner.height);
                         self.render_node(*child_id, child_area, buffer);
                         x_offset = x_offset.saturating_add(child_width);
                     }
@@ -794,7 +815,9 @@ impl Renderer {
         } else {
             // Leaf: render the component
             let state = self.nodes[id.0].state.inner_as_any();
-            self.nodes[id.0].component.render_erased(area, buffer, state);
+            self.nodes[id.0]
+                .component
+                .render_erased(area, buffer, state);
 
             // Cache and clean
             let mut node_buf = Buffer::empty(area);
@@ -826,8 +849,16 @@ fn allocate_widths(constraints: &[WidthConstraint], total: u16) -> Vec<u16> {
         .count() as u16;
 
     let remaining = total.saturating_sub(fixed_sum);
-    let per_fill = if fill_count > 0 { remaining / fill_count } else { 0 };
-    let mut remainder = if fill_count > 0 { remaining % fill_count } else { 0 };
+    let per_fill = if fill_count > 0 {
+        remaining / fill_count
+    } else {
+        0
+    };
+    let mut remainder = if fill_count > 0 {
+        remaining % fill_count
+    } else {
+        0
+    };
 
     constraints
         .iter()
@@ -906,8 +937,8 @@ mod tests {
             state.len() as u16
         }
 
-        fn initial_state(&self) -> Vec<String> {
-            vec![]
+        fn initial_state(&self) -> Option<Vec<String>> {
+            Some(vec![])
         }
     }
 
@@ -1145,8 +1176,8 @@ mod tests {
             }
         }
 
-        fn initial_state(&self) -> String {
-            String::new()
+        fn initial_state(&self) -> Option<String> {
+            Some(String::new())
         }
     }
 
@@ -1280,8 +1311,8 @@ mod tests {
             true
         }
 
-        fn initial_state(&self) -> String {
-            "item".to_string()
+        fn initial_state(&self) -> Option<String> {
+            Some("item".to_string())
         }
     }
 
@@ -1307,7 +1338,8 @@ mod tests {
         let f2 = r.push(FocusableItem);
         let f3 = r.push(FocusableItem);
 
-        r.state_mut::<TextBlock>(_non_focusable).push("header".to_string());
+        r.state_mut::<TextBlock>(_non_focusable)
+            .push("header".to_string());
 
         // No initial focus → Tab focuses first focusable
         r.handle_event(&tab_event());
@@ -1381,7 +1413,9 @@ mod tests {
 
     impl TestTextEl {
         fn new(text: &str) -> Self {
-            Self { lines: vec![text.to_string()] }
+            Self {
+                lines: vec![text.to_string()],
+            }
         }
     }
 
@@ -1529,12 +1563,14 @@ mod tests {
             fn desired_height(&self, _width: u16, state: &Self::State) -> u16 {
                 if state.is_empty() { 0 } else { 1 }
             }
-            fn initial_state(&self) -> String {
-                String::new()
+            fn initial_state(&self) -> Option<String> {
+                Some(String::new())
             }
         }
 
-        struct CustomWidgetEl { config: String }
+        struct CustomWidgetEl {
+            config: String,
+        }
 
         impl Element for CustomWidgetEl {
             fn build(self: Box<Self>, renderer: &mut Renderer, parent: NodeId) -> NodeId {
@@ -1549,7 +1585,9 @@ mod tests {
         let container = r.push(VStack);
 
         let mut els = Elements::new();
-        els.add_element(CustomWidgetEl { config: "custom!".to_string() });
+        els.add_element(CustomWidgetEl {
+            config: "custom!".to_string(),
+        });
         r.rebuild(container, els);
 
         let frame = r.render();
@@ -1575,8 +1613,8 @@ mod tests {
             if state.0.is_empty() { 0 } else { 1 }
         }
 
-        fn initial_state(&self) -> (String, usize) {
-            (String::new(), 0)
+        fn initial_state(&self) -> Option<(String, usize)> {
+            Some((String::new(), 0))
         }
     }
 
@@ -1586,7 +1624,9 @@ mod tests {
 
     impl CounterEl {
         fn new(label: &str) -> Self {
-            Self { label: label.to_string() }
+            Self {
+                label: label.to_string(),
+            }
         }
     }
 
@@ -1959,13 +1999,15 @@ mod tests {
 
         // Build active spinner
         let mut els = Elements::new();
-        els.add(crate::components::spinner::Spinner::new("Loading...")).key("s");
+        els.add(crate::components::spinner::Spinner::new("Loading..."))
+            .key("s");
         r.rebuild(container, els);
         assert!(r.has_active());
 
         // Rebuild as done
         let mut els = Elements::new();
-        els.add(crate::components::spinner::Spinner::new("Done").done("Completed")).key("s");
+        els.add(crate::components::spinner::Spinner::new("Done").done("Completed"))
+            .key("s");
         r.rebuild(container, els);
         assert!(!r.has_active());
     }
@@ -2011,12 +2053,12 @@ mod tests {
             if state.log.is_empty() { 0 } else { 1 }
         }
 
-        fn initial_state(&self) -> LifecycleState {
-            LifecycleState {
+        fn initial_state(&self) -> Option<LifecycleState> {
+            Some(LifecycleState {
                 log: Vec::new(),
                 mount_marker: String::new(),
                 unmount_marker: String::new(),
-            }
+            })
         }
 
         fn lifecycle(&self, hooks: &mut Hooks<LifecycleState>, state: &LifecycleState) {
@@ -2047,7 +2089,9 @@ mod tests {
 
         fn update(self: Box<Self>, renderer: &mut Renderer, node_id: NodeId) {
             let state = renderer.state_mut::<LifecycleWidget>(node_id);
-            state.log.retain(|s| s.starts_with("mounted:") || s.starts_with("unmounted:"));
+            state
+                .log
+                .retain(|s| s.starts_with("mounted:") || s.starts_with("unmounted:"));
             state.log.push(self.label.clone());
             state.mount_marker = self.mount_marker;
             state.unmount_marker = self.unmount_marker;
@@ -2081,8 +2125,10 @@ mod tests {
         r.rebuild(container, els);
 
         let id = r.find_by_key(container, "a").unwrap();
-        let mount_count = r.state_mut::<LifecycleWidget>(id)
-            .log.iter()
+        let mount_count = r
+            .state_mut::<LifecycleWidget>(id)
+            .log
+            .iter()
             .filter(|s| s.starts_with("mounted:"))
             .count();
         assert_eq!(mount_count, 1);
@@ -2093,7 +2139,11 @@ mod tests {
         r.rebuild(container, els);
 
         let state = r.state_mut::<LifecycleWidget>(id);
-        let mount_count = state.log.iter().filter(|s| s.starts_with("mounted:")).count();
+        let mount_count = state
+            .log
+            .iter()
+            .filter(|s| s.starts_with("mounted:"))
+            .count();
         assert_eq!(mount_count, 1); // still just 1
     }
 
@@ -2128,9 +2178,13 @@ mod tests {
 
         // Build parent with child
         let parent_id = r.append_child(container, LifecycleWidget);
-        r.state_mut::<LifecycleWidget>(parent_id).log.push("parent".to_string());
+        r.state_mut::<LifecycleWidget>(parent_id)
+            .log
+            .push("parent".to_string());
         let child_id = r.append_child(parent_id, LifecycleWidget);
-        r.state_mut::<LifecycleWidget>(child_id).log.push("child".to_string());
+        r.state_mut::<LifecycleWidget>(child_id)
+            .log
+            .push("child".to_string());
 
         let order_clone = order.clone();
         r.on_unmount::<LifecycleWidget>(parent_id, move |_state| {
@@ -2171,7 +2225,10 @@ mod tests {
         let container = r.push(VStack);
 
         let mut els = Elements::new();
-        els.add_element(HookedCounterEl { label: "multi".into() }).key("m");
+        els.add_element(HookedCounterEl {
+            label: "multi".into(),
+        })
+        .key("m");
         r.rebuild(container, els);
 
         let id = r.find_by_key(container, "m").unwrap();
@@ -2200,7 +2257,11 @@ mod tests {
 
     #[test]
     fn allocate_widths_fill_with_remainder() {
-        let constraints = vec![WidthConstraint::Fill, WidthConstraint::Fill, WidthConstraint::Fill];
+        let constraints = vec![
+            WidthConstraint::Fill,
+            WidthConstraint::Fill,
+            WidthConstraint::Fill,
+        ];
         let widths = super::allocate_widths(&constraints, 80);
         // 80 / 3 = 26 remainder 2 → first two get 27, last gets 26
         assert_eq!(widths, vec![27, 27, 26]);
@@ -2209,10 +2270,7 @@ mod tests {
 
     #[test]
     fn allocate_widths_fixed_plus_fill() {
-        let constraints = vec![
-            WidthConstraint::Fixed(2),
-            WidthConstraint::Fill,
-        ];
+        let constraints = vec![WidthConstraint::Fixed(2), WidthConstraint::Fill];
         let widths = super::allocate_widths(&constraints, 80);
         assert_eq!(widths, vec![2, 78]);
     }
@@ -2268,7 +2326,8 @@ mod tests {
         let container = r.push(VStack);
 
         let mut row = Elements::new();
-        row.add_element(TestTextEl::new(">")).width(WidthConstraint::Fixed(2));
+        row.add_element(TestTextEl::new(">"))
+            .width(WidthConstraint::Fixed(2));
         row.add_element(TestTextEl::new("hello"));
 
         let mut els = Elements::new();
@@ -2316,7 +2375,8 @@ mod tests {
         els.add_element(TestTextEl::new("above"));
 
         let mut row = Elements::new();
-        row.add_element(TestTextEl::new("$")).width(WidthConstraint::Fixed(2));
+        row.add_element(TestTextEl::new("$"))
+            .width(WidthConstraint::Fixed(2));
         row.add_element(TestTextEl::new("cmd"));
         els.hstack(row);
 
@@ -2340,7 +2400,8 @@ mod tests {
 
         // First build
         let mut row = Elements::new();
-        row.add_element(TestTextEl::new(">")).width(WidthConstraint::Fixed(2));
+        row.add_element(TestTextEl::new(">"))
+            .width(WidthConstraint::Fixed(2));
         row.add_element(TestTextEl::new("v1"));
         let mut els = Elements::new();
         els.hstack(row).key("row");
@@ -2351,7 +2412,8 @@ mod tests {
 
         // Rebuild — content changes but layout preserved
         let mut row = Elements::new();
-        row.add_element(TestTextEl::new("$")).width(WidthConstraint::Fixed(2));
+        row.add_element(TestTextEl::new("$"))
+            .width(WidthConstraint::Fixed(2));
         row.add_element(TestTextEl::new("v2"));
         let mut els = Elements::new();
         els.hstack(row).key("row");
@@ -2382,8 +2444,7 @@ mod tests {
                 if area.height > 1 {
                     buf[(area.x, area.y + area.height - 1)].set_symbol("+");
                     if area.width > 1 {
-                        buf[(area.x + area.width - 1, area.y + area.height - 1)]
-                            .set_symbol("+");
+                        buf[(area.x + area.width - 1, area.y + area.height - 1)].set_symbol("+");
                     }
                 }
             }
@@ -2397,8 +2458,8 @@ mod tests {
             *state
         }
 
-        fn initial_state(&self) -> Insets {
-            Insets::ZERO
+        fn initial_state(&self) -> Option<Insets> {
+            Some(Insets::ZERO)
         }
     }
 
@@ -2540,18 +2601,14 @@ mod tests {
             0 // children determine height
         }
 
-        fn initial_state(&self) -> LabeledRowState {
-            LabeledRowState {
+        fn initial_state(&self) -> Option<LabeledRowState> {
+            Some(LabeledRowState {
                 prefix: String::new(),
                 label: String::new(),
-            }
+            })
         }
 
-        fn children(
-            &self,
-            state: &Self::State,
-            _slot: Option<Elements>,
-        ) -> Option<Elements> {
+        fn children(&self, state: &Self::State, _slot: Option<Elements>) -> Option<Elements> {
             // Ignore slot — generate own children
             let mut row = Elements::new();
             row.add_element(TestTextEl::new(&state.prefix))
@@ -2666,14 +2723,14 @@ mod tests {
         type State = String; // banner title
 
         fn render(&self, _area: Rect, _buf: &mut Buffer, _state: &Self::State) {}
-        fn desired_height(&self, _width: u16, _state: &Self::State) -> u16 { 0 }
-        fn initial_state(&self) -> String { String::new() }
+        fn desired_height(&self, _width: u16, _state: &Self::State) -> u16 {
+            0
+        }
+        fn initial_state(&self) -> Option<String> {
+            Some(String::new())
+        }
 
-        fn children(
-            &self,
-            state: &Self::State,
-            slot: Option<Elements>,
-        ) -> Option<Elements> {
+        fn children(&self, state: &Self::State, slot: Option<Elements>) -> Option<Elements> {
             let mut els = Elements::new();
             // Add banner title
             els.add_element(TestTextEl::new(state));
@@ -2688,7 +2745,9 @@ mod tests {
         }
     }
 
-    struct BannerEl { title: String }
+    struct BannerEl {
+        title: String,
+    }
 
     impl Element for BannerEl {
         fn build(self: Box<Self>, renderer: &mut Renderer, parent: NodeId) -> NodeId {
@@ -2714,7 +2773,12 @@ mod tests {
         slot.add_element(TestTextEl::new("content"));
 
         let mut els = Elements::new();
-        els.add_element_with_children(BannerEl { title: "TITLE".into() }, slot);
+        els.add_element_with_children(
+            BannerEl {
+                title: "TITLE".into(),
+            },
+            slot,
+        );
         r.rebuild(container, els);
 
         let frame = r.render();
@@ -2765,8 +2829,8 @@ mod tests {
             if state.0.is_empty() { 0 } else { 1 }
         }
 
-        fn initial_state(&self) -> (String, usize) {
-            (String::new(), 0)
+        fn initial_state(&self) -> Option<(String, usize)> {
+            Some((String::new(), 0))
         }
 
         fn lifecycle(&self, hooks: &mut Hooks<(String, usize)>, state: &(String, usize)) {
@@ -2779,7 +2843,9 @@ mod tests {
         }
     }
 
-    struct HookedCounterEl { label: String }
+    struct HookedCounterEl {
+        label: String,
+    }
 
     impl Element for HookedCounterEl {
         fn build(self: Box<Self>, renderer: &mut Renderer, parent: NodeId) -> NodeId {
@@ -2802,7 +2868,9 @@ mod tests {
         let container = r.push(VStack);
 
         let mut els = Elements::new();
-        els.add_element(HookedCounterEl { label: "active".into() });
+        els.add_element(HookedCounterEl {
+            label: "active".into(),
+        });
         r.rebuild(container, els);
 
         // Lifecycle should have registered an interval
@@ -2816,13 +2884,19 @@ mod tests {
 
         // Build with active interval
         let mut els = Elements::new();
-        els.add_element(HookedCounterEl { label: "active".into() }).key("c");
+        els.add_element(HookedCounterEl {
+            label: "active".into(),
+        })
+        .key("c");
         r.rebuild(container, els);
         assert!(r.has_active());
 
         // Update to "stop" — lifecycle re-runs, no interval registered → cleared
         let mut els = Elements::new();
-        els.add_element(HookedCounterEl { label: "stop".into() }).key("c");
+        els.add_element(HookedCounterEl {
+            label: "stop".into(),
+        })
+        .key("c");
         r.rebuild(container, els);
         assert!(!r.has_active());
     }
@@ -2833,7 +2907,8 @@ mod tests {
         let container = r.push(VStack);
 
         let mut els = Elements::new();
-        els.add_element(HookedCounterEl { label: "go".into() }).key("c");
+        els.add_element(HookedCounterEl { label: "go".into() })
+            .key("c");
         r.rebuild(container, els);
 
         let id = r.find_by_key(container, "c").unwrap();
@@ -2862,7 +2937,9 @@ mod tests {
             fn desired_height(&self, _width: u16, state: &Self::State) -> u16 {
                 if state.is_empty() { 0 } else { 1 }
             }
-            fn initial_state(&self) -> Vec<String> { Vec::new() }
+            fn initial_state(&self) -> Option<Vec<String>> {
+                Some(Vec::new())
+            }
             fn lifecycle(&self, hooks: &mut Hooks<Vec<String>>, _state: &Vec<String>) {
                 hooks.use_mount(|s| s.push("mounted".into()));
                 hooks.use_unmount(|s| s.push("unmounted".into()));

@@ -49,7 +49,10 @@ fn char_wrap_spans(spans: Vec<Span<'_>>, width: u16) -> Vec<Line<'_>> {
             let w = UnicodeWidthChar::width(ch).unwrap_or(0) as u16;
             if col + w > width {
                 if !chunk.is_empty() {
-                    lines.last_mut().unwrap().push(Span::styled(chunk.clone(), style));
+                    lines
+                        .last_mut()
+                        .unwrap()
+                        .push(Span::styled(chunk.clone(), style));
                     chunk.clear();
                 }
                 lines.push(vec![]);
@@ -86,7 +89,9 @@ impl Component for Input {
         let spans = vec![
             Span::styled(
                 format!("{}: ", state.label),
-                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
             ),
             Span::styled(state.text.clone(), Style::default().fg(Color::White)),
         ];
@@ -99,16 +104,29 @@ impl Component for Input {
     }
 
     fn desired_height(&self, width: u16, state: &Self::State) -> u16 {
-        if width == 0 { return 0; }
+        if width == 0 {
+            return 0;
+        }
         let label_w = state.label.chars().count() as u16 + 2;
-        let text_w: u16 = state.text.chars().map(|c| UnicodeWidthChar::width(c).unwrap_or(0) as u16).sum();
+        let text_w: u16 = state
+            .text
+            .chars()
+            .map(|c| UnicodeWidthChar::width(c).unwrap_or(0) as u16)
+            .sum();
         let total = label_w + text_w;
-        if total == 0 { return 1; }
+        if total == 0 {
+            return 1;
+        }
         ((total as u32 + width as u32 - 1) / width as u32).max(1) as u16
     }
 
     fn handle_event(&self, event: &Event, state: &mut Self::State) -> EventResult {
-        if let Event::Key(KeyEvent { code, kind: KeyEventKind::Press, .. }) = event {
+        if let Event::Key(KeyEvent {
+            code,
+            kind: KeyEventKind::Press,
+            ..
+        }) = event
+        {
             match code {
                 KeyCode::Char(c) => {
                     state.text.insert(state.cursor, *c);
@@ -117,7 +135,11 @@ impl Component for Input {
                 }
                 KeyCode::Backspace => {
                     if state.cursor > 0 {
-                        let prev = state.text[..state.cursor].chars().last().map(|c| c.len_utf8()).unwrap_or(0);
+                        let prev = state.text[..state.cursor]
+                            .chars()
+                            .last()
+                            .map(|c| c.len_utf8())
+                            .unwrap_or(0);
                         state.cursor -= prev;
                         state.text.remove(state.cursor);
                     }
@@ -125,14 +147,22 @@ impl Component for Input {
                 }
                 KeyCode::Left => {
                     if state.cursor > 0 {
-                        let prev = state.text[..state.cursor].chars().last().map(|c| c.len_utf8()).unwrap_or(0);
+                        let prev = state.text[..state.cursor]
+                            .chars()
+                            .last()
+                            .map(|c| c.len_utf8())
+                            .unwrap_or(0);
                         state.cursor -= prev;
                     }
                     EventResult::Consumed
                 }
                 KeyCode::Right => {
                     if state.cursor < state.text.len() {
-                        let next = state.text[state.cursor..].chars().next().map(|c| c.len_utf8()).unwrap_or(0);
+                        let next = state.text[state.cursor..]
+                            .chars()
+                            .next()
+                            .map(|c| c.len_utf8())
+                            .unwrap_or(0);
                         state.cursor += next;
                     }
                     EventResult::Consumed
@@ -154,8 +184,8 @@ impl Component for Input {
         Some((col, row))
     }
 
-    fn initial_state(&self) -> InputState {
-        InputState::new("Input")
+    fn initial_state(&self) -> Option<InputState> {
+        Some(InputState::new("Input"))
     }
 }
 

@@ -20,6 +20,7 @@ use crate::node::{Effect, EffectKind, TypedEffectHandler};
 /// ```
 pub struct Hooks<S: 'static> {
     effects: Vec<Effect>,
+    autofocus: bool,
     _marker: PhantomData<S>,
 }
 
@@ -27,6 +28,7 @@ impl<S: Send + Sync + 'static> Hooks<S> {
     pub(crate) fn new() -> Self {
         Self {
             effects: Vec::new(),
+            autofocus: false,
             _marker: PhantomData,
         }
     }
@@ -66,6 +68,19 @@ impl<S: Send + Sync + 'static> Hooks<S> {
             }),
             kind: EffectKind::OnUnmount,
         });
+    }
+
+    /// Request focus when this node mounts.
+    ///
+    /// If multiple nodes mount with autofocus in the same rebuild,
+    /// the last one wins.
+    pub fn use_autofocus(&mut self) {
+        self.autofocus = true;
+    }
+
+    /// Whether autofocus was requested.
+    pub(crate) fn autofocus(&self) -> bool {
+        self.autofocus
     }
 
     /// Consume the hooks and return collected effects.

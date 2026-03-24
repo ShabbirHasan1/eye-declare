@@ -197,12 +197,12 @@ impl Component for Input {
         Some((col, row))
     }
 
-    fn initial_state(&self) -> InputState {
-        InputState {
+    fn initial_state(&self) -> Option<InputState> {
+        Some(InputState {
             text: String::new(),
             cursor: 0,
             label: String::from("Input"),
-        }
+        })
     }
 }
 
@@ -232,8 +232,8 @@ impl Component for MessageLog {
         state.len() as u16
     }
 
-    fn initial_state(&self) -> Vec<String> {
-        vec![]
+    fn initial_state(&self) -> Option<Vec<String>> {
+        Some(vec![])
     }
 }
 

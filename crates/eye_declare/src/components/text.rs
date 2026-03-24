@@ -76,8 +76,6 @@ impl Component for TextBlock {
         let text = self.to_text();
         wrap::wrapped_line_count(&text, width)
     }
-
-    fn initial_state(&self) -> () {}
 }
 
 #[cfg(test)]
@@ -99,8 +97,7 @@ mod tests {
 
     #[test]
     fn wraps_at_narrow_width() {
-        let tb = TextBlock::new()
-            .unstyled("hello world this is a long line that should wrap");
+        let tb = TextBlock::new().unstyled("hello world this is a long line that should wrap");
         // At width 20, this ~47 char line should wrap to 3 lines
         let height = tb.desired_height(20, &());
         assert!(height >= 3, "expected >= 3, got {}", height);
@@ -118,12 +115,18 @@ mod tests {
 
     #[test]
     fn styled_text_wraps_correctly() {
-        let tb = TextBlock::new()
-            .line("important text that is fairly long", Style::default().fg(Color::Red));
+        let tb = TextBlock::new().line(
+            "important text that is fairly long",
+            Style::default().fg(Color::Red),
+        );
         let height_wide = tb.desired_height(80, &());
         let height_narrow = tb.desired_height(15, &());
         assert_eq!(height_wide, 1);
-        assert!(height_narrow >= 3, "expected >= 3 at width 15, got {}", height_narrow);
+        assert!(
+            height_narrow >= 3,
+            "expected >= 3 at width 15, got {}",
+            height_narrow
+        );
     }
 
     #[test]
