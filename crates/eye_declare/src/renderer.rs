@@ -419,9 +419,12 @@ impl Renderer {
 
     /// Fire and remove all OnMount effects for a node.
     fn fire_mount(&mut self, id: NodeId) {
-        // Autofocus: set focus when this node mounts
+        // Autofocus: set focus when this node mounts (if focusable)
         if self.nodes[id.0].autofocus {
-            self.focused = Some(id);
+            let node = &self.nodes[id.0];
+            if node.component.is_focusable_erased(node.state.inner_as_any()) {
+                self.focused = Some(id);
+            }
         }
 
         if let Some(effects) = self.effects.remove(&id) {
