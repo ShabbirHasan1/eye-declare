@@ -1,9 +1,9 @@
-use eye_declare::{Elements, Markdown, Renderer, Spinner, TextBlock, VStack, element};
+use eye_declare::{Elements, InlineRenderer, Markdown, Spinner, TextBlock, VStack, element};
 use ratatui_core::style::Style;
 
 /// Helper: build elements into a renderer and return child count.
 fn child_count(els: Elements) -> usize {
-    let mut r = Renderer::new(40);
+    let mut r = InlineRenderer::new(40);
     let container = r.push(VStack);
     r.rebuild(container, els);
     r.children(container).len()
@@ -30,7 +30,7 @@ fn component_with_key() {
     let els = element! {
         Spinner(key: "s", label: "Loading...")
     };
-    let mut r = Renderer::new(40);
+    let mut r = InlineRenderer::new(40);
     let container = r.push(VStack);
     r.rebuild(container, els);
     assert!(r.find_by_key(container, "s").is_some());
@@ -44,7 +44,7 @@ fn component_with_children() {
             Spinner(label: "b")
         }
     };
-    let mut r = Renderer::new(40);
+    let mut r = InlineRenderer::new(40);
     let container = r.push(VStack);
     r.rebuild(container, els);
     // Container has one VStack child
@@ -61,7 +61,7 @@ fn string_literal_becomes_text_block() {
             "world"
         }
     };
-    let mut r = Renderer::new(40);
+    let mut r = InlineRenderer::new(40);
     let container = r.push(VStack);
     r.rebuild(container, els);
     let vstack_id = r.children(container)[0];
@@ -130,7 +130,7 @@ fn for_loop() {
             Markdown(key: format!("item-{i}"), source: item.to_string())
         })
     };
-    let mut r = Renderer::new(40);
+    let mut r = InlineRenderer::new(40);
     let container = r.push(VStack);
     r.rebuild(container, els);
     assert_eq!(r.children(container).len(), 3);
@@ -148,7 +148,7 @@ fn nested_components() {
             }
         }
     };
-    let mut r = Renderer::new(40);
+    let mut r = InlineRenderer::new(40);
     let container = r.push(VStack);
     r.rebuild(container, els);
     let outer = r.children(container)[0];
@@ -173,7 +173,7 @@ fn mixed_content() {
         }
     };
 
-    let mut r = Renderer::new(40);
+    let mut r = InlineRenderer::new(40);
     let container = r.push(VStack);
     r.rebuild(container, els);
     let vstack_id = r.children(container)[0];

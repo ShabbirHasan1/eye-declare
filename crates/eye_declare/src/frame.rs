@@ -13,6 +13,7 @@ impl Frame {
         Self { buffer }
     }
 
+    #[cfg(test)]
     pub fn buffer(&self) -> &Buffer {
         &self.buffer
     }
@@ -122,18 +123,9 @@ impl Diff {
     }
 
     /// Number of changed cells.
+    #[cfg(test)]
     pub fn len(&self) -> usize {
         self.cells.len()
-    }
-
-    /// The area of the new frame.
-    pub fn new_area(&self) -> Rect {
-        self.new_area
-    }
-
-    /// The area of the previous frame.
-    pub fn prev_area(&self) -> Rect {
-        self.prev_area
     }
 
     /// Whether the frame grew (new frame is taller than previous).

@@ -46,8 +46,6 @@ pub(crate) trait AnyComponent: Send + Sync {
     fn content_inset_erased(&self, state: &dyn Any) -> Insets;
     fn children_erased(&self, state: &dyn Any, slot: Option<Elements>) -> Option<Elements>;
     fn lifecycle_erased(&self, state: &dyn Any) -> LifecycleOutput;
-    /// Downcast to concrete type for reading props.
-    fn as_any_component(&self) -> &dyn Any;
 }
 
 impl<C: Component> AnyComponent for C {
@@ -116,10 +114,6 @@ impl<C: Component> AnyComponent for C {
             effects: hooks.into_effects(),
             autofocus,
         }
-    }
-
-    fn as_any_component(&self) -> &dyn Any {
-        self
     }
 }
 

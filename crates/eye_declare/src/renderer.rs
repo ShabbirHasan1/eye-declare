@@ -71,15 +71,6 @@ impl Renderer {
         self.nodes[id].layout = layout;
     }
 
-    /// Read the component on a node, downcast to the concrete type.
-    pub fn component<C: Component>(&self, id: NodeId) -> &C {
-        self.nodes[id]
-            .component
-            .as_any_component()
-            .downcast_ref::<C>()
-            .expect("component type mismatch")
-    }
-
     /// Shorthand: add a component as a child of the root. Returns its NodeId.
     pub fn push<C: Component>(&mut self, component: C) -> NodeId {
         self.append_child(self.root, component)
@@ -106,6 +97,7 @@ impl Renderer {
     }
 
     /// Set the layout direction for a container node.
+    #[cfg(test)]
     pub fn set_layout(&mut self, id: NodeId, layout: Layout) {
         self.nodes[id].layout = layout;
     }
