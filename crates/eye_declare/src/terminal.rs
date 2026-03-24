@@ -177,12 +177,13 @@ impl Terminal {
         self.flush()?;
 
         crossterm::terminal::enable_raw_mode()?;
+        let _guard = crate::app::RawModeGuard;
 
         let result = self.event_loop(&mut handler);
 
-        crossterm::terminal::disable_raw_mode()?;
-        // Show cursor in case it was hidden
-        io::stdout().write_all(b"\x1b[?25h")?;
+        // Guard handles disable_raw_mode + cursor restore on drop,
+        // but do it explicitly here for the clean newline.
+        drop(_guard);
         println!();
 
         result

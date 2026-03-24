@@ -3,6 +3,17 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
+/// Guard that restores terminal state on drop (including panic unwind).
+pub(crate) struct RawModeGuard;
+
+impl Drop for RawModeGuard {
+    fn drop(&mut self) {
+        let _ = crossterm::terminal::disable_raw_mode();
+        let _ = io::stdout().write_all(b"\x1b[?25h");
+        let _ = io::stdout().flush();
+    }
+}
+
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use futures::StreamExt;
 use tokio::sync::mpsc;
@@ -252,11 +263,13 @@ impl<S: Send + 'static> Application<S> {
         self.flush_to(&mut stdout)?;
 
         crossterm::terminal::enable_raw_mode()?;
-        let result = self.event_loop(&mut handler, &mut stdout).await;
-        crossterm::terminal::disable_raw_mode()?;
+        let _guard = RawModeGuard;
 
-        // Show cursor and newline for clean terminal state
-        stdout.write_all(b"\x1b[?25h")?;
+        let result = self.event_loop(&mut handler, &mut stdout).await;
+
+        // Guard handles disable_raw_mode + cursor restore on drop,
+        // but do it explicitly here for the clean newline.
+        drop(_guard);
         writeln!(stdout)?;
 
         result
