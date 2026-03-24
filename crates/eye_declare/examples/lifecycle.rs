@@ -35,6 +35,7 @@ impl StatusLog {
     }
 }
 
+#[derive(Default)]
 struct StatusLogState {
     entries: Vec<(String, Style)>,
 }

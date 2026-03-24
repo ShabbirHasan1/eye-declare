@@ -235,10 +235,8 @@ pub(crate) struct Node {
 
 impl Node {
     pub fn new<C: Component>(component: C) -> Self {
-        let state: Box<dyn AnyTrackedState> = match component.initial_state() {
-            Some(state) => Box::new(Tracked::new(state)),
-            None => Box::new(Tracked::new(())),
-        };
+        let state: Box<dyn AnyTrackedState> =
+            Box::new(Tracked::new(component.initial_state().unwrap_or_default()));
 
         Self {
             component: Box::new(component),

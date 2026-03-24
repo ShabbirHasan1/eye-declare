@@ -65,7 +65,7 @@ impl<S> DerefMut for Tracked<S> {
 pub trait Component: Send + Sync + 'static {
     /// State type for this component. The framework wraps it in
     /// `Tracked<S>` for automatic dirty detection.
-    type State: Send + Sync + 'static;
+    type State: Send + Sync + Default + 'static;
 
     /// Render into the given buffer region using current state.
     /// Can use any ratatui Widget internally.
@@ -108,6 +108,9 @@ pub trait Component: Send + Sync + 'static {
     }
 
     /// Create the initial state for this component.
+    ///
+    /// Returns `None` to use `State::default()`. Override to provide
+    /// custom initial state.
     fn initial_state(&self) -> Option<Self::State> {
         None
     }

@@ -19,6 +19,7 @@ use ratatui_widgets::paragraph::Paragraph;
 const SPINNER_FRAMES: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
 struct Spinner;
+#[derive(Default)]
 struct SpinnerState {
     label: String,
     frame: usize,
@@ -67,6 +68,7 @@ impl Component for Spinner {
 }
 
 struct StreamingText;
+#[derive(Default)]
 struct StreamingState {
     tokens: Vec<String>,
     revealed: usize,

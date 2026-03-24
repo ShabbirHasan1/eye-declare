@@ -184,6 +184,7 @@ impl Component for InputBox {
 #[derive(Default)]
 struct StreamingDots;
 
+#[derive(Default)]
 struct StreamingDotsState {
     frame: usize,
 }

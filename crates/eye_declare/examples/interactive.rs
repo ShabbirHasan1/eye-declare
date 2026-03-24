@@ -19,6 +19,7 @@ use unicode_width::UnicodeWidthChar;
 
 struct Input;
 
+#[derive(Default)]
 struct InputState {
     text: String,
     cursor: usize,

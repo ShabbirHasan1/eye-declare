@@ -19,6 +19,7 @@ use ratatui_widgets::paragraph::Paragraph;
 /// A spinner with a label. Animates through frames on each state update.
 struct Spinner;
 
+#[derive(Default)]
 struct SpinnerState {
     label: String,
     frame: usize,
@@ -72,6 +73,7 @@ impl Component for Spinner {
 /// A text block that streams content token by token.
 struct StreamingText;
 
+#[derive(Default)]
 struct StreamingState {
     tokens: Vec<String>,
     revealed: usize,

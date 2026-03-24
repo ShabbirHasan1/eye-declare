@@ -74,7 +74,6 @@ impl Component for StatusBadge {
     }
 
     fn desired_height(&self, _width: u16, _state: &()) -> u16 { 1 }
-    fn initial_state(&self) -> () {}
 }
 ```
 

@@ -2038,6 +2038,7 @@ mod tests {
     /// Component with a log of lifecycle events.
     struct LifecycleWidget;
 
+    #[derive(Default)]
     struct LifecycleState {
         log: Vec<String>,
         mount_marker: String,
@@ -2591,6 +2592,7 @@ mod tests {
     /// an HStack with a prefix and a text label.
     struct LabeledRow;
 
+    #[derive(Default)]
     struct LabeledRowState {
         prefix: String,
         label: String,
