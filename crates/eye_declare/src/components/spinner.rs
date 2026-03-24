@@ -23,10 +23,11 @@ const FRAMES: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧"
 /// Spinner::new("Loading...")
 /// Spinner::new("Done").done("Completed!")
 /// ```
+#[derive(Default)]
 pub struct Spinner {
-    label: String,
-    done: bool,
-    done_label: Option<String>,
+    pub label: String,
+    pub done: bool,
+    pub done_label: Option<String>,
 }
 
 impl Spinner {

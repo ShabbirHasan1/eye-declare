@@ -22,7 +22,7 @@ use crate::wrap;
 ///     .unstyled("plain text")
 /// ```
 pub struct TextBlock {
-    lines: Vec<(String, Style)>,
+    pub lines: Vec<(String, Style)>,
 }
 
 impl TextBlock {

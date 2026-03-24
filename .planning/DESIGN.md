@@ -446,9 +446,7 @@ useful and testable:
 6. ✅ Content inset (Insets type, content_inset on Component)
 7. ✅ Composite children (children() with slot parameter)
 8. ✅ Hooks (Hooks<S> collector, lifecycle() on Component)
-9. **Application wrapper** — owns state + view fn, set_state,
-   managed event/tick loop
-10. **Committed scrollback** — InlineRenderer drops nodes that
-    scroll past, reconciliation skips committed content
-11. **Memoization** — skip children() for unchanged composites
+9. ✅ Application wrapper (async run, Handle, run_interactive)
+10. ✅ Committed scrollback (on_commit callback, state eviction)
+11. **Memoization** — skip children() for unchanged composites (deferred — implement when composite components make it worthwhile)
 12. **element! macro** — JSX-like syntax sugar

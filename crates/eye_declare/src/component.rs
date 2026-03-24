@@ -164,6 +164,7 @@ pub trait Component: Send + Sync + 'static {
 ///
 /// VStack renders nothing itself — children determine all sizing
 /// and content. Used as the implicit root component of a Renderer.
+#[derive(Default)]
 pub struct VStack;
 
 impl Component for VStack {
@@ -184,6 +185,7 @@ impl Component for VStack {
 /// left-to-right with widths determined by their
 /// [`WidthConstraint`](crate::node::WidthConstraint).
 /// The layout direction is set on the Node by the element builder.
+#[derive(Default)]
 pub struct HStack;
 
 impl Component for HStack {

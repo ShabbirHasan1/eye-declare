@@ -28,3 +28,7 @@ pub use inline::InlineRenderer;
 pub use node::{Layout, NodeId, WidthConstraint};
 pub use renderer::Renderer;
 pub use terminal::Terminal;
+
+// Re-export the element! proc macro
+#[cfg(feature = "macros")]
+pub use eye_declare_macros::element;

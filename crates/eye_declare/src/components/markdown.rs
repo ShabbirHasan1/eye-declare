@@ -18,8 +18,9 @@ use crate::wrap;
 /// ```ignore
 /// Markdown::new("# Hello\n\nThis is **bold**.")
 /// ```
+#[derive(Default)]
 pub struct Markdown {
-    source: String,
+    pub source: String,
 }
 
 impl Markdown {
