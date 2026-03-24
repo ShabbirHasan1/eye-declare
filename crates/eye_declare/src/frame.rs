@@ -147,6 +147,16 @@ impl Diff {
     pub fn growth(&self) -> u16 {
         self.new_area.height.saturating_sub(self.prev_area.height)
     }
+
+    /// Remove cells that are above the visible area (in scrollback).
+    ///
+    /// Cells at row < `min_row` are in terminal scrollback and can't
+    /// be modified. Filtering them prevents cursor tracking drift.
+    pub fn retain_visible(&mut self, min_row: u16) {
+        if min_row > 0 {
+            self.cells.retain(|(_, y, _)| *y >= min_row);
+        }
+    }
 }
 
 #[cfg(test)]

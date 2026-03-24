@@ -18,16 +18,22 @@ pub struct InlineRenderer {
     prev_frame: Option<Frame>,
     /// Total rows we've "claimed" in the terminal so far.
     emitted_rows: u16,
+    /// Terminal height, used to avoid writing to rows in scrollback.
+    terminal_height: u16,
 }
 
 impl InlineRenderer {
     /// Create a new inline renderer at the given terminal width.
     pub fn new(width: u16) -> Self {
+        let terminal_height = crossterm::terminal::size()
+            .map(|(_, h)| h)
+            .unwrap_or(u16::MAX);
         Self {
             renderer: Renderer::new(width),
             cursor: CursorState::new(),
             prev_frame: None,
             emitted_rows: 0,
+            terminal_height,
         }
     }
 
@@ -175,6 +181,10 @@ impl InlineRenderer {
         self.cursor = CursorState::new();
         self.prev_frame = None;
         self.emitted_rows = 0;
+        // Update terminal height (resize event gives us width, query for height)
+        if let Ok((_, h)) = crossterm::terminal::size() {
+            self.terminal_height = h;
+        }
 
         // Do a fresh render
         let render_output = self.render();
@@ -204,7 +214,7 @@ impl InlineRenderer {
             let empty = Frame::new(ratatui_core::buffer::Buffer::empty(
                 ratatui_core::layout::Rect::new(0, 0, self.renderer.width(), 0),
             ));
-            let diff = new_frame.diff(&empty);
+            let mut diff = new_frame.diff(&empty);
 
             let mut output = Vec::new();
 
@@ -222,6 +232,10 @@ impl InlineRenderer {
             self.cursor.row = new_height.saturating_sub(1);
             self.cursor.col = 0;
 
+            // Filter out cells in scrollback (unreachable by cursor)
+            let scrolled_past = self.emitted_rows.saturating_sub(self.terminal_height);
+            diff.retain_visible(scrolled_past);
+
             let escape_bytes = diff.to_escape_sequences(&mut self.cursor);
             output.extend_from_slice(&escape_bytes);
 
@@ -232,7 +246,7 @@ impl InlineRenderer {
 
         // Subsequent renders
         let prev = self.prev_frame.as_ref().unwrap();
-        let diff = new_frame.diff(prev);
+        let mut diff = new_frame.diff(prev);
 
         if diff.is_empty() && !diff.grew() {
             // Even if content didn't change, cursor position might have
@@ -264,6 +278,10 @@ impl InlineRenderer {
             self.cursor.row += growth;
         }
 
+        // Filter out cells in scrollback (unreachable by cursor)
+        let scrolled_past = self.emitted_rows.saturating_sub(self.terminal_height);
+        diff.retain_visible(scrolled_past);
+
         let escape_bytes = diff.to_escape_sequences(&mut self.cursor);
         output.extend_from_slice(&escape_bytes);
 
@@ -275,6 +293,11 @@ impl InlineRenderer {
     /// How many rows have been emitted to the terminal.
     pub fn emitted_rows(&self) -> u16 {
         self.emitted_rows
+    }
+
+    /// Update the known terminal height.
+    pub fn set_terminal_height(&mut self, height: u16) {
+        self.terminal_height = height;
     }
 
     /// Get the last rendered height of a node.

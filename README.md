@@ -269,7 +269,7 @@ The tradeoff is deliberate. Inline rendering is the right model for AI assistant
 
 4. **Growth** is handled by emitting newlines to claim new terminal rows before writing content. Old rows naturally scroll into terminal scrollback.
 
-**Known limitation:** When content height exceeds the terminal height, the terminal itself scrolls — an event invisible to the application. This can cause cursor tracking drift during rapid updates with many concurrent animations. For long-running interactive sessions, a viewport renderer (fixed-height region with internal scrolling) would solve this; it's planned but not yet implemented. The `on_commit` callback mitigates the issue by evicting content from state before it grows too tall.
+**Scrollback handling:** When content height exceeds the terminal height, the terminal scrolls rows into scrollback. The framework tracks terminal height and filters diff output to only address visible rows, preventing cursor tracking drift. The `on_commit` callback provides an additional optimization by evicting committed content from application state entirely.
 
 ### Design documents
 
