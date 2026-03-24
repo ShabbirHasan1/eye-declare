@@ -24,10 +24,21 @@ pub struct InlineRenderer {
 
 impl InlineRenderer {
     /// Create a new inline renderer at the given terminal width.
+    ///
+    /// Queries the terminal for its height to filter scrollback writes.
+    /// Falls back to `u16::MAX` (no filtering) if no terminal is attached.
     pub fn new(width: u16) -> Self {
         let terminal_height = crossterm::terminal::size()
             .map(|(_, h)| h)
             .unwrap_or(u16::MAX);
+        Self::new_with_height(width, terminal_height)
+    }
+
+    /// Create a new inline renderer with an explicit terminal height.
+    ///
+    /// Use this in tests or environments where querying the terminal
+    /// is not possible or deterministic behavior is required.
+    pub fn new_with_height(width: u16, terminal_height: u16) -> Self {
         Self {
             renderer: Renderer::new(width),
             cursor: CursorState::new(),
@@ -419,7 +430,7 @@ mod tests {
 
     #[test]
     fn first_render_empty_produces_nothing() {
-        let mut ir = InlineRenderer::new(10);
+        let mut ir = InlineRenderer::new_with_height(10, 24);
         let _id = ir.push(TextBlock);
         let output = ir.render();
         assert!(output.is_empty());
@@ -427,7 +438,7 @@ mod tests {
 
     #[test]
     fn first_render_with_content_produces_output() {
-        let mut ir = InlineRenderer::new(10);
+        let mut ir = InlineRenderer::new_with_height(10, 24);
         let id = ir.push(TextBlock);
         ir.state_mut::<TextBlock>(id).push("hello".to_string());
 
@@ -444,7 +455,7 @@ mod tests {
 
     #[test]
     fn no_change_produces_minimal_output() {
-        let mut ir = InlineRenderer::new(10);
+        let mut ir = InlineRenderer::new_with_height(10, 24);
         let id = ir.push(TextBlock);
         ir.state_mut::<TextBlock>(id).push("hello".to_string());
 
@@ -459,7 +470,7 @@ mod tests {
 
     #[test]
     fn growing_content_emits_newlines() {
-        let mut ir = InlineRenderer::new(10);
+        let mut ir = InlineRenderer::new_with_height(10, 24);
         let id = ir.push(TextBlock);
         ir.state_mut::<TextBlock>(id).push("line1".to_string());
 
