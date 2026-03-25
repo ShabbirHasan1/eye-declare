@@ -450,6 +450,12 @@ impl<S: Send + 'static> Application<S> {
             self.check_commits();
         }
 
+        // Final rebuild + render so state changes from the exit handler are visible
+        if self.dirty {
+            self.rebuild();
+        }
+        self.flush_to(stdout)?;
+
         Ok(())
     }
 
