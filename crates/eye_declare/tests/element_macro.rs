@@ -1,5 +1,6 @@
-use eye_declare::{Elements, InlineRenderer, Markdown, Spinner, TextBlock, VStack, element};
-use ratatui_core::style::Style;
+use eye_declare::{
+    Elements, InlineRenderer, Line, Markdown, Span, Spinner, TextBlock, VStack, element,
+};
 
 /// Helper: build elements into a renderer and return child count.
 fn child_count(els: Elements) -> usize {
@@ -97,7 +98,11 @@ fn conditional_if_else() {
         #(if loading {
             Spinner(label: "loading...")
         } else {
-            TextBlock(lines: vec![("done".to_string(), Style::default())])
+            TextBlock {
+                Line {
+                    Span(text: "done")
+                }
+            }
         })
     };
     assert_eq!(child_count(els), 1);

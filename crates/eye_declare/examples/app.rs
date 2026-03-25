@@ -8,7 +8,7 @@
 use std::io;
 use std::time::Duration;
 
-use eye_declare::{Application, Elements, Spinner, TextBlock, element};
+use eye_declare::{Application, Elements, Line, Span, Spinner, TextBlock, element};
 use ratatui_core::style::{Color, Modifier, Style};
 
 // ---------------------------------------------------------------------------
@@ -23,7 +23,11 @@ struct AppState {
 fn app_view(state: &AppState) -> Elements {
     element! {
         #(for (text, style) in &state.messages {
-            TextBlock(lines: [(text.clone(), *style)]) {}
+            TextBlock {
+                Line {
+                    Span(text: text.clone(), style: *style)
+                }
+            }
         })
         #(if state.thinking {
             Spinner(label: "Processing...")

@@ -1,13 +1,117 @@
-use ratatui_core::{
-    buffer::Buffer,
-    layout::Rect,
-    style::Style,
-    text::{Line, Text},
-    widgets::Widget,
-};
+use ratatui_core::{buffer::Buffer, layout::Rect, style::Style, widgets::Widget};
 
+use crate::children::{AddTo, ChildCollector, DataHandle};
 use crate::component::Component;
 use crate::wrap;
+
+// ---------------------------------------------------------------------------
+// Span — a segment of styled text
+// ---------------------------------------------------------------------------
+
+/// A segment of text with a single style.
+///
+/// Used as a child of [`Line`] in the `element!` macro:
+/// ```ignore
+/// Line {
+///     Span(text: "hello ", style: Style::default().fg(Color::Green))
+///     Span(text: "world")
+/// }
+/// ```
+#[derive(Clone, Debug)]
+pub struct Span {
+    pub text: String,
+    pub style: Style,
+}
+
+impl Default for Span {
+    fn default() -> Self {
+        Self {
+            text: String::new(),
+            style: Style::default(),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Line — a line of text composed of Spans
+// ---------------------------------------------------------------------------
+
+/// A line of text composed of one or more [`Span`]s.
+///
+/// Used as a child of [`TextBlock`] in the `element!` macro:
+/// ```ignore
+/// TextBlock {
+///     Line {
+///         Span(text: "Name: ", style: bold())
+///         Span(text: name, style: green())
+///     }
+///     Line {
+///         Span(text: "plain text")
+///     }
+/// }
+/// ```
+#[derive(Clone, Debug, Default)]
+pub struct Line {
+    pub spans: Vec<Span>,
+}
+
+// ---------------------------------------------------------------------------
+// Collectors for Line and TextBlock
+// ---------------------------------------------------------------------------
+
+/// Collector for [`Span`] children inside a [`Line`].
+#[derive(Default)]
+pub struct LineChildren {
+    pub(crate) spans: Vec<Span>,
+}
+
+impl AddTo<LineChildren> for Span {
+    type Handle<'a> = DataHandle;
+
+    fn add_to(self, collector: &mut LineChildren) -> DataHandle {
+        collector.spans.push(self);
+        DataHandle
+    }
+}
+
+impl ChildCollector for Line {
+    type Collector = LineChildren;
+    type Output = Line;
+
+    fn finish(mut self, collector: LineChildren) -> Line {
+        self.spans = collector.spans;
+        self
+    }
+}
+
+/// Collector for [`Line`] children inside a [`TextBlock`].
+#[derive(Default)]
+pub struct TextBlockChildren {
+    pub(crate) lines: Vec<Line>,
+}
+
+impl AddTo<TextBlockChildren> for Line {
+    type Handle<'a> = DataHandle;
+
+    fn add_to(self, collector: &mut TextBlockChildren) -> DataHandle {
+        collector.lines.push(self);
+        DataHandle
+    }
+}
+
+impl ChildCollector for TextBlock {
+    type Collector = TextBlockChildren;
+    type Output = TextBlock;
+
+    fn finish(mut self, collector: TextBlockChildren) -> TextBlock {
+        self.lines = collector.lines;
+        self
+    }
+}
+
+// ---------------------------------------------------------------------------
+// TextBlock
+// ---------------------------------------------------------------------------
 
 /// A built-in text component with display-time word wrapping.
 ///
@@ -15,14 +119,30 @@ use crate::wrap;
 /// Wrapping is computed at render time based on the current width,
 /// so content reflows automatically on resize.
 ///
-/// Use the builder API to construct:
+/// ## Builder API
 /// ```ignore
 /// TextBlock::new()
 ///     .line("styled text", Style::default().fg(Color::Red))
 ///     .unstyled("plain text")
 /// ```
+///
+/// ## element! macro with Line/Span children
+/// ```ignore
+/// element! {
+///     TextBlock {
+///         Line {
+///             Span(text: "Name: ", style: Style::default().add_modifier(Modifier::BOLD))
+///             Span(text: name, style: Style::default().fg(Color::Green))
+///         }
+///         Line {
+///             Span(text: "Status: ")
+///             Span(text: status, style: status_style)
+///         }
+///     }
+/// }
+/// ```
 pub struct TextBlock {
-    pub lines: Vec<(String, Style)>,
+    pub lines: Vec<Line>,
 }
 
 impl TextBlock {
@@ -30,25 +150,42 @@ impl TextBlock {
         Self { lines: Vec::new() }
     }
 
-    /// Add a styled line.
+    /// Add a styled line (single span).
     pub fn line(mut self, text: impl Into<String>, style: Style) -> Self {
-        self.lines.push((text.into(), style));
+        self.lines.push(Line {
+            spans: vec![Span {
+                text: text.into(),
+                style,
+            }],
+        });
         self
     }
 
-    /// Add an unstyled line (default style).
+    /// Add an unstyled line (default style, single span).
     pub fn unstyled(mut self, text: impl Into<String>) -> Self {
-        self.lines.push((text.into(), Style::default()));
+        self.lines.push(Line {
+            spans: vec![Span {
+                text: text.into(),
+                style: Style::default(),
+            }],
+        });
         self
     }
 
-    fn to_text(&self) -> Text<'_> {
-        let lines: Vec<Line> = self
+    fn to_text(&self) -> ratatui_core::text::Text<'_> {
+        let lines: Vec<ratatui_core::text::Line> = self
             .lines
             .iter()
-            .map(|(text, style)| Line::styled(text.as_str(), *style))
+            .map(|line| {
+                let spans: Vec<ratatui_core::text::Span> = line
+                    .spans
+                    .iter()
+                    .map(|span| ratatui_core::text::Span::styled(span.text.as_str(), span.style))
+                    .collect();
+                ratatui_core::text::Line::from(spans)
+            })
             .collect();
-        Text::from(lines)
+        ratatui_core::text::Text::from(lines)
     }
 }
 
@@ -145,5 +282,30 @@ mod tests {
     fn default_is_empty() {
         let tb = TextBlock::default();
         assert_eq!(tb.desired_height(80, &()), 0);
+    }
+
+    #[test]
+    fn multi_span_line() {
+        let tb = TextBlock {
+            lines: vec![Line {
+                spans: vec![
+                    Span {
+                        text: "hello ".into(),
+                        style: Style::default(),
+                    },
+                    Span {
+                        text: "world".into(),
+                        style: Style::default().fg(Color::Green),
+                    },
+                ],
+            }],
+        };
+        assert_eq!(tb.desired_height(80, &()), 1);
+
+        let area = Rect::new(0, 0, 20, 1);
+        let mut buf = Buffer::empty(area);
+        tb.render(area, &mut buf, &());
+        assert_eq!(buf[(0, 0)].symbol(), "h");
+        assert_eq!(buf[(6, 0)].symbol(), "w");
     }
 }

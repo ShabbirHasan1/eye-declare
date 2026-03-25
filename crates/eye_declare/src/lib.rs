@@ -17,7 +17,7 @@ pub use app::{Application, ApplicationBuilder, CommittedElement, ControlFlow, Ha
 pub use component::{Component, EventResult, HStack, Tracked, VStack};
 pub use components::markdown::{Markdown, MarkdownState};
 pub use components::spinner::{Spinner, SpinnerState};
-pub use components::text::TextBlock;
+pub use components::text::{Line, Span, TextBlock};
 pub use element::{ElementHandle, Elements};
 pub use hooks::Hooks;
 pub use inline::InlineRenderer;
