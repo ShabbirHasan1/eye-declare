@@ -178,7 +178,7 @@ dependencies = [
 
 [[package]]
 name = "eye_declare"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "crossterm",
  "eye_declare_macros",
