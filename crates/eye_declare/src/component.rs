@@ -68,12 +68,43 @@ pub enum EventResult {
 /// Wrapper that automatically marks component state dirty on mutation.
 ///
 /// The framework wraps each component's `State` in `Tracked<S>`.
-/// Read access via [`Deref`] is free — it does not set the dirty flag.
 /// Write access via [`DerefMut`] automatically marks the state dirty,
 /// telling the framework this component needs to re-render.
+/// Read access via [`Deref`] does not set the dirty flag.
 ///
-/// You will interact with `Tracked` when using the imperative
-/// [`InlineRenderer`](crate::InlineRenderer) API:
+/// # Usage in event handlers
+///
+/// Event handlers ([`Component::handle_event`], [`Component::handle_event_capture`])
+/// receive `&mut Tracked<State>`. Writing to state through field access or
+/// method calls goes through [`DerefMut`] and marks the component dirty:
+///
+/// ```ignore
+/// fn handle_event(&self, event: &Event, state: &mut Tracked<Self::State>) -> EventResult {
+///     state.text.push('a');  // DerefMut → marks dirty
+///     EventResult::Consumed
+/// }
+/// ```
+///
+/// # Reading state without marking dirty
+///
+/// **Important:** on `&mut Tracked<S>`, Rust's auto-deref uses [`DerefMut`]
+/// for *all* field access — even reads. This means `state.some_field` sets
+/// dirty even when you only read the value. Use [`read()`](Tracked::read)
+/// to get a shared reference that goes through [`Deref`] instead:
+///
+/// ```ignore
+/// fn handle_event(&self, event: &Event, state: &mut Tracked<Self::State>) -> EventResult {
+///     // state.mode would trigger DerefMut — use read() for a clean read
+///     if state.read().mode == Mode::Insert {
+///         state.text.push('a');  // DerefMut → marks dirty
+///         EventResult::Consumed
+///     } else {
+///         EventResult::Ignored  // state stays clean
+///     }
+/// }
+/// ```
+///
+/// # Usage with the imperative API
 ///
 /// ```ignore
 /// let id = renderer.push(Spinner::new("loading..."));
@@ -81,9 +112,6 @@ pub enum EventResult {
 /// // DerefMut triggers dirty flag automatically
 /// renderer.state_mut::<Spinner>(id).tick();
 /// ```
-///
-/// Inside [`Component::handle_event`] and lifecycle hooks, the framework
-/// provides the inner `State` directly — `Tracked` is transparent.
 pub struct Tracked<S> {
     inner: S,
     dirty: bool,
@@ -105,6 +133,29 @@ impl<S> Tracked<S> {
     /// Reset the dirty flag. Called by the framework after rendering.
     pub fn clear_dirty(&mut self) {
         self.dirty = false;
+    }
+
+    /// Get a shared reference to the inner state without marking dirty.
+    ///
+    /// On `&mut Tracked<S>`, direct field access like `state.field` goes
+    /// through [`DerefMut`], which unconditionally sets the dirty flag —
+    /// even for reads. Use `state.read().field` instead to read state
+    /// without triggering a re-render.
+    ///
+    /// This is especially useful in event handlers that conditionally
+    /// modify state, or that read state to call methods using interior
+    /// mutability (e.g., sending on a channel):
+    ///
+    /// ```ignore
+    /// fn handle_event(&self, event: &Event, state: &mut Tracked<Self::State>) -> EventResult {
+    ///     if let Some(tx) = &state.read().event_tx {
+    ///         tx.send(MyEvent::KeyPressed).ok();
+    ///     }
+    ///     EventResult::Consumed
+    /// }
+    /// ```
+    pub fn read(&self) -> &S {
+        &self.inner
     }
 }
 
@@ -189,11 +240,15 @@ pub trait Component: Send + Sync + 'static {
     /// Use this for global shortcuts that should take priority over
     /// focused-component handling.
     ///
+    /// The state is wrapped in [`Tracked`] — only mutable access via
+    /// [`DerefMut`] marks the component dirty. Use [`Tracked::read()`]
+    /// for reads that should not trigger a re-render.
+    ///
     /// Default: [`EventResult::Ignored`] (pass through to the next node).
     fn handle_event_capture(
         &self,
         _event: &crossterm::event::Event,
-        _state: &mut Self::State,
+        _state: &mut Tracked<Self::State>,
     ) -> EventResult {
         EventResult::Ignored
     }
@@ -202,12 +257,14 @@ pub trait Component: Send + Sync + 'static {
     ///
     /// Return [`EventResult::Consumed`] if the event was handled,
     /// or [`EventResult::Ignored`] to let it bubble up to the parent.
-    /// State mutations through the `&mut` reference automatically
-    /// mark the component dirty for re-rendering.
+    ///
+    /// The state is wrapped in [`Tracked`] — only mutable access via
+    /// [`DerefMut`] marks the component dirty. Use [`Tracked::read()`]
+    /// for reads that should not trigger a re-render.
     fn handle_event(
         &self,
         _event: &crossterm::event::Event,
-        _state: &mut Self::State,
+        _state: &mut Tracked<Self::State>,
     ) -> EventResult {
         EventResult::Ignored
     }

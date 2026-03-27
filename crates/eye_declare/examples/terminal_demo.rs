@@ -2,7 +2,7 @@ use std::io::Write;
 use std::time::Duration;
 
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
-use eye_declare::{Component, EventResult, InlineRenderer, TextBlock, VStack};
+use eye_declare::{Component, EventResult, InlineRenderer, TextBlock, Tracked, VStack};
 use ratatui_core::{
     buffer::Buffer,
     layout::Rect,
@@ -124,13 +124,14 @@ impl Component for Input {
         (total as u32).div_ceil(width as u32).max(1) as u16
     }
 
-    fn handle_event(&self, event: &Event, state: &mut Self::State) -> EventResult {
+    fn handle_event(&self, event: &Event, state: &mut Tracked<Self::State>) -> EventResult {
         if let Event::Key(KeyEvent {
             code,
             kind: KeyEventKind::Press,
             ..
         }) = event
         {
+            let state = &mut **state;
             match code {
                 KeyCode::Char(c) => {
                     state.text.insert(state.cursor, *c);

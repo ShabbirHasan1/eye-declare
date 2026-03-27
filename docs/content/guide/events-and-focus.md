@@ -30,7 +30,7 @@ impl Component for Input {
     fn handle_event(
         &self,
         event: &crossterm::event::Event,
-        state: &mut Self::State,
+        state: &mut Tracked<Self::State>,
     ) -> EventResult {
         if let Event::Key(KeyEvent {
             code,
@@ -38,6 +38,7 @@ impl Component for Input {
             ..
         }) = event
         {
+            let state = &mut **state;
             match code {
                 KeyCode::Char(c) => {
                     state.text.insert(state.cursor, *c);
@@ -75,7 +76,7 @@ Components can intercept events *before* they reach the focused component by imp
 fn handle_event_capture(
     &self,
     event: &crossterm::event::Event,
-    state: &mut Self::State,
+    state: &mut Tracked<Self::State>,
 ) -> EventResult {
     // Intercept Ctrl+N as a global shortcut
     if let Event::Key(KeyEvent {
@@ -96,7 +97,36 @@ fn handle_event_capture(
 
 This is useful for parent components that define global shortcuts — the focused child doesn't need to know about them or explicitly ignore them.
 
-State mutations through `&mut State` automatically mark the component dirty — you don't need to signal re-renders manually.
+### Dirty tracking
+
+State is wrapped in `Tracked` — only mutable access via `DerefMut` marks the component dirty for re-rendering. You don't need to signal re-renders manually.
+
+**Reading state without marking dirty:** On `&mut Tracked<S>`, Rust's auto-deref uses `DerefMut` for all field access — even reads. Use `state.read()` to get a shared reference that doesn't set the dirty flag:
+
+```rust
+fn handle_event(&self, event: &Event, state: &mut Tracked<Self::State>) -> EventResult {
+    // state.mode would trigger DerefMut — use read() for a clean read
+    if state.read().mode == Mode::Insert {
+        state.text.push('a');  // DerefMut → marks dirty
+        EventResult::Consumed
+    } else {
+        EventResult::Ignored  // state stays clean
+    }
+}
+```
+
+This is especially useful for handlers that read state to call methods using interior mutability (e.g., sending on a channel) without triggering unnecessary re-renders.
+
+When you know you will modify state, `let state = &mut **state;` unwraps `Tracked` in one `DerefMut` call, giving you direct `&mut State` access for the rest of the block:
+
+```rust
+KeyCode::Char(c) => {
+    let state = &mut **state;  // one DerefMut, then plain field access
+    state.text.insert(state.cursor, *c);
+    state.cursor += c.len_utf8();
+    EventResult::Consumed
+}
+```
 
 ## Focus
 
@@ -216,11 +246,12 @@ impl Component for Input {
         Some((col, 0))
     }
 
-    fn handle_event(&self, event: &Event, state: &mut Self::State) -> EventResult {
+    fn handle_event(&self, event: &Event, state: &mut Tracked<Self::State>) -> EventResult {
         if let Event::Key(KeyEvent {
             code,
             kind: KeyEventKind::Press, ..
         }) = event {
+            let state = &mut **state;
             match code {
                 KeyCode::Char(c) => {
                     state.text.insert(state.cursor, *c);

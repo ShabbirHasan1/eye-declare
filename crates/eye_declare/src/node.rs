@@ -93,8 +93,7 @@ impl<C: Component> AnyComponent for C {
         let tracked = tracked_state
             .downcast_mut::<Tracked<C::State>>()
             .expect("state type mismatch in handle_event_capture_erased");
-        // DerefMut on Tracked marks dirty automatically
-        self.handle_event_capture(event, &mut *tracked)
+        self.handle_event_capture(event, tracked)
     }
 
     fn handle_event_erased(
@@ -105,8 +104,7 @@ impl<C: Component> AnyComponent for C {
         let tracked = tracked_state
             .downcast_mut::<Tracked<C::State>>()
             .expect("state type mismatch in handle_event_erased");
-        // DerefMut on Tracked marks dirty automatically
-        self.handle_event(event, &mut *tracked)
+        self.handle_event(event, tracked)
     }
 
     fn cursor_position_erased(&self, area: Rect, state: &dyn Any) -> Option<(u16, u16)> {

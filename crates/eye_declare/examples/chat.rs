@@ -170,7 +170,7 @@ impl Component for InputBox {
     fn handle_event(
         &self,
         _event: &crossterm::event::Event,
-        _state: &mut (),
+        _state: &mut eye_declare::Tracked<()>,
     ) -> eye_declare::EventResult {
         // Events handled by the app handler, not here
         eye_declare::EventResult::Ignored

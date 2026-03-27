@@ -119,8 +119,9 @@ fn lifecycle(&self, hooks: &mut Hooks<MyState>, _state: &MyState) {
 }
 
 // Later, in handle_event:
-fn handle_event(&self, event: &Event, state: &mut Self::State) -> EventResult {
-    if let Some(ref tx) = state.event_tx {
+fn handle_event(&self, event: &Event, state: &mut Tracked<Self::State>) -> EventResult {
+    // read() goes through Deref — does not mark dirty
+    if let Some(ref tx) = state.read().event_tx {
         tx.send(AppEvent::ButtonClicked).ok();
     }
     EventResult::Consumed

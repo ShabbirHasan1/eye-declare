@@ -1286,7 +1286,7 @@ mod tests {
         fn handle_event(
             &self,
             event: &crossterm::event::Event,
-            state: &mut Self::State,
+            state: &mut Tracked<Self::State>,
         ) -> EventResult {
             use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind};
             if let Event::Key(KeyEvent {
@@ -1395,8 +1395,35 @@ mod tests {
         // Deliver event
         r.handle_event(&key_event('a'));
 
-        // State should be dirty now (DerefMut in handle_event_erased)
+        // State should be dirty now (component accessed state via DerefMut)
         assert!(r.nodes[id].state.is_dirty());
+    }
+
+    #[test]
+    fn noop_handler_does_not_mark_dirty() {
+        let mut r = Renderer::new(10);
+
+        // Parent has a no-op capture handler (default Ignored, never touches state).
+        // Child handles char events via bubble.
+        let parent = r.push(VStack);
+        let child = r.append_child(parent, InputCapture);
+        r.state_mut::<InputCapture>(child).push('x'); // give height
+        r.set_focus(child);
+
+        let _ = r.render(); // clear all dirty flags
+        assert!(!r.nodes[parent].state.is_dirty());
+        assert!(!r.nodes[child].state.is_dirty());
+
+        // Deliver event — VStack's default capture handler runs but
+        // never accesses state, so parent must stay clean.
+        r.handle_event(&key_event('a'));
+
+        assert!(
+            !r.nodes[parent].state.is_dirty(),
+            "no-op capture handler must not set dirty"
+        );
+        // Child's bubble handler did mutate state
+        assert!(r.nodes[child].state.is_dirty());
     }
 
     #[test]
@@ -1569,7 +1596,7 @@ mod tests {
         fn handle_event_capture(
             &self,
             event: &crossterm::event::Event,
-            state: &mut Self::State,
+            state: &mut Tracked<Self::State>,
         ) -> EventResult {
             use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
             if let Event::Key(KeyEvent {
@@ -1685,7 +1712,7 @@ mod tests {
             fn handle_event_capture(
                 &self,
                 event: &crossterm::event::Event,
-                state: &mut Self::State,
+                state: &mut Tracked<Self::State>,
             ) -> EventResult {
                 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind};
                 if let Event::Key(KeyEvent {
@@ -1704,7 +1731,7 @@ mod tests {
             fn handle_event(
                 &self,
                 event: &crossterm::event::Event,
-                state: &mut Self::State,
+                state: &mut Tracked<Self::State>,
             ) -> EventResult {
                 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind};
                 if let Event::Key(KeyEvent {
