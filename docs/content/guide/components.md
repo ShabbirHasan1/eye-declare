@@ -236,7 +236,8 @@ Insets::new().top(2).left(1).right(1) // builder style
 |--------|----------|---------|---------|
 | `render()` | Yes | — | Draw into the allocated area |
 | `desired_height()` | Yes | — | Declare vertical space needs |
-| `handle_event()` | No | `Ignored` | Handle keyboard/mouse events |
+| `handle_event_capture()` | No | `Ignored` | Intercept events during capture phase (root → focused) |
+| `handle_event()` | No | `Ignored` | Handle events during bubble phase (focused → root) |
 | `is_focusable()` | No | `false` | Participate in Tab cycling |
 | `cursor_position()` | No | `None` | Position terminal cursor when focused |
 | `initial_state()` | No | `State::default()` | Custom initial state |

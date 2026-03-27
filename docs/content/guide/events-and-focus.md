@@ -7,9 +7,21 @@ description: Keyboard/mouse event handling and focus management
 
 eye-declare provides an event system for interactive TUIs. Components can handle keyboard and mouse events, participate in focus cycling, and control the terminal cursor.
 
-## Event handling
+## Event dispatch model
 
-Components handle events by implementing `handle_event()`:
+Events are dispatched in two phases, similar to the DOM:
+
+1. **Capture** (root → focused): each component's `handle_event_capture()` is called, walking from the root toward the focused component. Returning `Consumed` stops propagation — the event never reaches the focused component or the bubble phase.
+
+2. **Bubble** (focused → root): each component's `handle_event()` is called, starting at the focused component and walking up to the root. Returning `Consumed` stops propagation.
+
+The focused component participates in both phases. Frozen components are skipped in both.
+
+Use the capture phase for global shortcuts that should take priority over focused-component handling (e.g., Ctrl+N for "new item" regardless of what's focused). Use the bubble phase for normal input handling.
+
+## Bubble phase: handle_event
+
+Components handle events during the bubble phase by implementing `handle_event()`:
 
 ```rust
 impl Component for Input {
@@ -51,9 +63,38 @@ impl Component for Input {
 ### EventResult
 
 - `EventResult::Consumed` — the event was handled; stop propagation
-- `EventResult::Ignored` — pass the event to the parent component
+- `EventResult::Ignored` — propagation continues to the next node
 
-Events bubble up the tree: the focused component gets the event first, and if it returns `Ignored`, the parent gets a chance, and so on.
+During bubble, the focused component gets the event first, and if it returns `Ignored`, the parent gets a chance, and so on.
+
+## Capture phase: handle_event_capture
+
+Components can intercept events *before* they reach the focused component by implementing `handle_event_capture()`:
+
+```rust
+fn handle_event_capture(
+    &self,
+    event: &crossterm::event::Event,
+    state: &mut Self::State,
+) -> EventResult {
+    // Intercept Ctrl+N as a global shortcut
+    if let Event::Key(KeyEvent {
+        code: KeyCode::Char('n'),
+        kind: KeyEventKind::Press,
+        modifiers,
+        ..
+    }) = event
+    {
+        if modifiers.contains(KeyModifiers::CONTROL) {
+            state.new_item();
+            return EventResult::Consumed;
+        }
+    }
+    EventResult::Ignored
+}
+```
+
+This is useful for parent components that define global shortcuts — the focused child doesn't need to know about them or explicitly ignore them.
 
 State mutations through `&mut State` automatically mark the component dirty — you don't need to signal re-renders manually.
 

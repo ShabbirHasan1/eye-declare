@@ -53,14 +53,15 @@ macro_rules! impl_slot_children {
     };
 }
 
-/// Result of handling an input event in [`Component::handle_event`].
+/// Result of handling an input event in a component's event handler.
 ///
-/// Controls whether the event continues bubbling up the component tree.
+/// Controls whether event propagation continues through the component
+/// tree during either the capture or bubble phase.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EventResult {
     /// The event was handled by this component. Stops propagation.
     Consumed,
-    /// The event was not handled. The framework passes it to the parent.
+    /// The event was not handled. Propagation continues to the next node.
     Ignored,
 }
 
@@ -177,7 +178,27 @@ pub trait Component: Send + Sync + 'static {
     /// How tall does this component want to be at the given width?
     fn desired_height(&self, width: u16, state: &Self::State) -> u16;
 
-    /// Handle an input event, potentially mutating state.
+    /// Handle an input event during the **capture** phase (root → focused).
+    ///
+    /// The capture phase fires before the bubble phase, walking from the
+    /// root of the tree down to the focused component. Return
+    /// [`EventResult::Consumed`] to stop propagation — the event will
+    /// never reach the focused component's [`handle_event`](Component::handle_event)
+    /// or any bubble-phase handler.
+    ///
+    /// Use this for global shortcuts that should take priority over
+    /// focused-component handling.
+    ///
+    /// Default: [`EventResult::Ignored`] (pass through to the next node).
+    fn handle_event_capture(
+        &self,
+        _event: &crossterm::event::Event,
+        _state: &mut Self::State,
+    ) -> EventResult {
+        EventResult::Ignored
+    }
+
+    /// Handle an input event during the **bubble** phase (focused → root).
     ///
     /// Return [`EventResult::Consumed`] if the event was handled,
     /// or [`EventResult::Ignored`] to let it bubble up to the parent.

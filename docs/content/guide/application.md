@@ -80,8 +80,8 @@ app.run_loop().await?;
 
 Enters raw mode and routes terminal events through the component tree:
 - Tab/Shift+Tab cycle focus among focusable components
-- Events are delivered to the focused component via `handle_event()`
-- Events bubble up the tree if not consumed
+- Events go through two-phase dispatch: capture (root → focused) then bubble (focused → root)
+- `handle_event_capture()` fires during capture; `handle_event()` fires during bubble
 
 Use this when your components handle their own input (text fields, buttons, etc.).
 

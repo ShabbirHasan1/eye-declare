@@ -149,7 +149,7 @@ renderer.set_focus(input_id);
 
 ### handle_event
 
-Deliver an event to the focused component:
+Deliver an event through two-phase dispatch (capture then bubble):
 
 ```rust
 renderer.handle_event(&event);

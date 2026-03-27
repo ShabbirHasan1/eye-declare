@@ -142,11 +142,24 @@ impl Renderer {
         self.focused
     }
 
-    /// Deliver an event to the focused component.
+    /// Deliver an event to the component tree using capture + bubble phases.
     ///
-    /// Tab and Shift-Tab are intercepted for focus cycling among
+    /// Tab and Shift-Tab are intercepted first for focus cycling among
     /// focusable components (depth-first tree order). All other events
-    /// are delivered to the focused component with bubble-up to parents.
+    /// go through two-phase dispatch:
+    ///
+    /// 1. **Capture** (root → focused): each node's
+    ///    [`handle_event_capture`](crate::Component::handle_event_capture) is called.
+    ///    Returning [`EventResult::Consumed`] stops propagation immediately.
+    /// 2. **Bubble** (focused → root): each node's
+    ///    [`handle_event`](crate::Component::handle_event) is called.
+    ///    Returning [`EventResult::Consumed`] stops propagation.
+    ///
+    /// Frozen nodes are skipped in both phases.
+    ///
+    /// **Note:** Tab/Shift-Tab focus cycling is intercepted *before* both
+    /// phases. When cycling succeeds, neither phase runs. When it falls
+    /// through (0 or 1 focusable nodes), normal two-phase dispatch applies.
     ///
     /// Returns [`EventResult::Ignored`] if no component is focused
     /// or no component consumed the event.
@@ -176,12 +189,26 @@ impl Renderer {
             return EventResult::Ignored;
         };
 
-        // Try the focused node, then bubble up through parents
-        let mut current = Some(focused);
-        while let Some(id) = current {
+        // Build path from root to focused node
+        let path = self.path_to_node(focused);
+
+        // Capture phase: root → focused
+        for &id in &path {
             let node = &mut self.nodes[id];
             if node.frozen {
-                current = node.parent;
+                continue;
+            }
+            let state_any = node.state.as_any_mut();
+            let result = node.component.handle_event_capture_erased(event, state_any);
+            if result == EventResult::Consumed {
+                return EventResult::Consumed;
+            }
+        }
+
+        // Bubble phase: focused → root
+        for &id in path.iter().rev() {
+            let node = &mut self.nodes[id];
+            if node.frozen {
                 continue;
             }
             let state_any = node.state.as_any_mut();
@@ -189,10 +216,21 @@ impl Renderer {
             if result == EventResult::Consumed {
                 return EventResult::Consumed;
             }
-            current = self.nodes[id].parent;
         }
 
         EventResult::Ignored
+    }
+
+    /// Build the path from root to a given node (inclusive).
+    fn path_to_node(&self, target: NodeId) -> Vec<NodeId> {
+        let mut path = Vec::new();
+        let mut current = Some(target);
+        while let Some(id) = current {
+            path.push(id);
+            current = self.nodes[id].parent;
+        }
+        path.reverse();
+        path
     }
 
     /// Collect focusable node IDs in depth-first tree order.
@@ -1507,6 +1545,211 @@ mod tests {
         let result = r.handle_event(&tab_event());
         assert_eq!(r.focus(), Some(f1));
         assert_eq!(result, EventResult::Ignored);
+    }
+
+    // --- Capture phase tests ---
+
+    /// A component that intercepts specific keys during the capture phase.
+    /// Consumes Ctrl+N during capture; ignores everything else.
+    struct CaptureShortcut;
+
+    impl Component for CaptureShortcut {
+        type State = Vec<String>;
+
+        fn render(&self, area: Rect, buf: &mut Buffer, state: &Self::State) {
+            let text: Vec<Line> = state.iter().map(|s| Line::raw(s.as_str())).collect();
+            let para = Paragraph::new(text);
+            ratatui_core::widgets::Widget::render(para, area, buf);
+        }
+
+        fn desired_height(&self, _width: u16, state: &Self::State) -> u16 {
+            state.len() as u16
+        }
+
+        fn handle_event_capture(
+            &self,
+            event: &crossterm::event::Event,
+            state: &mut Self::State,
+        ) -> EventResult {
+            use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+            if let Event::Key(KeyEvent {
+                code: KeyCode::Char('n'),
+                kind: KeyEventKind::Press,
+                modifiers,
+                ..
+            }) = event
+            {
+                if modifiers.contains(KeyModifiers::CONTROL) {
+                    state.push("capture:ctrl-n".to_string());
+                    return EventResult::Consumed;
+                }
+            }
+            EventResult::Ignored
+        }
+
+        fn initial_state(&self) -> Option<Vec<String>> {
+            Some(vec![])
+        }
+    }
+
+    fn ctrl_n_event() -> crossterm::event::Event {
+        crossterm::event::Event::Key(crossterm::event::KeyEvent::new(
+            crossterm::event::KeyCode::Char('n'),
+            crossterm::event::KeyModifiers::CONTROL,
+        ))
+    }
+
+    #[test]
+    fn capture_phase_intercepts_before_bubble() {
+        let mut r = Renderer::new(10);
+
+        // Parent captures Ctrl+N; child handles all chars via bubble
+        let parent = r.push(CaptureShortcut);
+        let child = r.append_child(parent, InputCapture);
+        r.set_focus(child);
+
+        // Regular key → capture ignores, bubble handles at child
+        let result = r.handle_event(&key_event('a'));
+        assert_eq!(result, EventResult::Consumed);
+        assert_eq!(&**r.state_mut::<InputCapture>(child), "a");
+        assert!(r.state_mut::<CaptureShortcut>(parent).is_empty());
+
+        // Ctrl+N → capture intercepts at parent, child never sees it
+        let result = r.handle_event(&ctrl_n_event());
+        assert_eq!(result, EventResult::Consumed);
+        assert_eq!(&**r.state_mut::<InputCapture>(child), "a"); // unchanged
+        assert_eq!(
+            &**r.state_mut::<CaptureShortcut>(parent),
+            &["capture:ctrl-n".to_string()]
+        );
+    }
+
+    #[test]
+    fn capture_consumed_prevents_bubble() {
+        let mut r = Renderer::new(10);
+
+        // Grandparent captures Ctrl+N, parent also handles chars in bubble
+        let grandparent = r.push(CaptureShortcut);
+        let parent = r.append_child(grandparent, InputCapture);
+        let child = r.append_child(parent, TextBlock);
+        r.state_mut::<TextBlock>(child).push("child".to_string());
+        r.set_focus(child);
+
+        // Ctrl+N captured by grandparent — parent's bubble handler never runs
+        let result = r.handle_event(&ctrl_n_event());
+        assert_eq!(result, EventResult::Consumed);
+        assert_eq!(
+            &**r.state_mut::<CaptureShortcut>(grandparent),
+            &["capture:ctrl-n".to_string()]
+        );
+        assert_eq!(&**r.state_mut::<InputCapture>(parent), ""); // never touched
+    }
+
+    #[test]
+    fn frozen_node_skipped_in_capture() {
+        let mut r = Renderer::new(10);
+
+        let parent = r.push(CaptureShortcut);
+        let child = r.append_child(parent, TextBlock);
+        r.state_mut::<TextBlock>(child).push("child".to_string());
+        r.set_focus(child);
+
+        // Freeze parent
+        let _ = r.render();
+        r.freeze(parent);
+
+        // Ctrl+N → parent is frozen so capture skipped, TextBlock ignores in bubble
+        let result = r.handle_event(&ctrl_n_event());
+        assert_eq!(result, EventResult::Ignored);
+        assert!(r.state_mut::<CaptureShortcut>(parent).is_empty());
+    }
+
+    #[test]
+    fn focused_node_participates_in_capture() {
+        // A component that handles events in capture phase, used as the focused node
+        struct SelfCapture;
+
+        impl Component for SelfCapture {
+            type State = Vec<String>;
+
+            fn render(&self, _area: Rect, _buf: &mut Buffer, _state: &Self::State) {}
+
+            fn desired_height(&self, _width: u16, _state: &Self::State) -> u16 {
+                1
+            }
+
+            fn is_focusable(&self, _state: &Self::State) -> bool {
+                true
+            }
+
+            fn handle_event_capture(
+                &self,
+                event: &crossterm::event::Event,
+                state: &mut Self::State,
+            ) -> EventResult {
+                use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind};
+                if let Event::Key(KeyEvent {
+                    code: KeyCode::Char(c),
+                    kind: KeyEventKind::Press,
+                    ..
+                }) = event
+                {
+                    state.push(format!("capture:{c}"));
+                    EventResult::Consumed
+                } else {
+                    EventResult::Ignored
+                }
+            }
+
+            fn handle_event(
+                &self,
+                event: &crossterm::event::Event,
+                state: &mut Self::State,
+            ) -> EventResult {
+                use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind};
+                if let Event::Key(KeyEvent {
+                    code: KeyCode::Char(c),
+                    kind: KeyEventKind::Press,
+                    ..
+                }) = event
+                {
+                    state.push(format!("bubble:{c}"));
+                    EventResult::Consumed
+                } else {
+                    EventResult::Ignored
+                }
+            }
+
+            fn initial_state(&self) -> Option<Vec<String>> {
+                Some(vec![])
+            }
+        }
+
+        let mut r = Renderer::new(10);
+        let id = r.push(SelfCapture);
+        r.set_focus(id);
+
+        r.handle_event(&key_event('x'));
+
+        let state = r.state_mut::<SelfCapture>(id);
+        // Capture fires first and consumes — bubble never runs
+        assert_eq!(&**state, &["capture:x".to_string()]);
+    }
+
+    #[test]
+    fn capture_ignores_then_bubble_handles() {
+        let mut r = Renderer::new(10);
+
+        // Parent has capture handler but only for Ctrl+N
+        let parent = r.push(CaptureShortcut);
+        let child = r.append_child(parent, InputCapture);
+        r.set_focus(child);
+
+        // Regular char → capture ignores at both, bubble handles at child
+        let result = r.handle_event(&key_event('z'));
+        assert_eq!(result, EventResult::Consumed);
+        assert_eq!(&**r.state_mut::<InputCapture>(child), "z");
+        assert!(r.state_mut::<CaptureShortcut>(parent).is_empty());
     }
 
     // --- Declarative rebuild tests ---

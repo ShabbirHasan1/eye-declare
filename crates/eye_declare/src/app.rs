@@ -441,7 +441,7 @@ impl<S: Send + 'static> Application<S> {
     ///
     /// Enables terminal raw mode and processes terminal events
     /// (keyboard, mouse, resize) through the component tree's
-    /// [`handle_event`](crate::Component::handle_event) method,
+    /// two-phase event dispatch (capture then bubble),
     /// including focus management and Tab cycling. Unlike
     /// [`run_interactive`](Application::run_interactive), raw terminal
     /// events are **not** exposed to the caller.

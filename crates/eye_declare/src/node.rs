@@ -48,6 +48,11 @@ pub enum WidthConstraint {
 pub(crate) trait AnyComponent: Send + Sync {
     fn render_erased(&self, area: Rect, buf: &mut Buffer, state: &dyn Any);
     fn desired_height_erased(&self, width: u16, state: &dyn Any) -> u16;
+    fn handle_event_capture_erased(
+        &self,
+        event: &crossterm::event::Event,
+        tracked_state: &mut dyn Any,
+    ) -> crate::component::EventResult;
     fn handle_event_erased(
         &self,
         event: &crossterm::event::Event,
@@ -78,6 +83,18 @@ impl<C: Component> AnyComponent for C {
             .downcast_ref::<C::State>()
             .expect("state type mismatch in desired_height_erased");
         self.desired_height(width, state)
+    }
+
+    fn handle_event_capture_erased(
+        &self,
+        event: &crossterm::event::Event,
+        tracked_state: &mut dyn Any,
+    ) -> crate::component::EventResult {
+        let tracked = tracked_state
+            .downcast_mut::<Tracked<C::State>>()
+            .expect("state type mismatch in handle_event_capture_erased");
+        // DerefMut on Tracked marks dirty automatically
+        self.handle_event_capture(event, &mut *tracked)
     }
 
     fn handle_event_erased(

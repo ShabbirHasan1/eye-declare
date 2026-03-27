@@ -202,7 +202,7 @@ impl InlineRenderer {
         self.renderer.focus()
     }
 
-    /// Deliver an event to the focused component with bubble-up.
+    /// Deliver an event using capture (root → focused) then bubble (focused → root).
     pub fn handle_event(&mut self, event: &crossterm::event::Event) -> EventResult {
         self.renderer.handle_event(event)
     }
