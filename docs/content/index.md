@@ -51,7 +51,7 @@ async fn main() -> std::io::Result<()> {
 - **React-like component model** — props, state, reconciliation, and lifecycle hooks
 - **`element!` macro** — JSX-like syntax for composing component trees
 - **Automatic dirty tracking** — only changed components re-render
-- **Frame diffing** — minimal ANSI output, no tearing
+- **Frame diffing** — minimal ANSI output, wrapped in [DEC 2026 synchronized output](https://gist.github.com/christianparpart/d8a62cc1ab659194571cd32e81e8406d) to prevent tearing
 - **Async-first** — `Handle` sends updates from any thread or async task
 
 ## Get started
