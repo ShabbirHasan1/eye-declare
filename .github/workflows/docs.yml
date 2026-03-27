@@ -17,6 +17,9 @@ concurrency:
   group: pages
   cancel-in-progress: true
 
+env:
+  UNDOX_REF: v0.1.8
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -27,12 +30,16 @@ jobs:
         id: cache-undox
         uses: actions/cache@v4
         with:
-          path: .undox/bin
-          key: undox-0.1.8-linux-x86_64
+          path: .undox
+          key: undox-${{ env.UNDOX_REF }}-${{ runner.os }}
 
-      - name: Install undox
+      - name: Install Rust
         if: steps.cache-undox.outputs.cache-hit != 'true'
-        run: ./docs/scripts/install-undox.sh 0.1.8
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install undox from source
+        if: steps.cache-undox.outputs.cache-hit != 'true'
+        run: ./docs/scripts/install-undox.sh ${{ env.UNDOX_REF }}
 
       - name: Build docs
         run: |
