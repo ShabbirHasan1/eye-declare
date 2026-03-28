@@ -9,7 +9,7 @@ if [[ ! "$BUMP" =~ ^(major|minor|patch)$ ]]; then
 fi
 
 # Generate changelog for the upcoming version
-git cliff --bump="$BUMP" -o CHANGELOG.md
+git cliff --github-token $(gh auth token) --bump="$BUMP" -o CHANGELOG.md
 
 # If the changelog has uncommitted changes, bail so the user can commit first
 if ! git diff --quiet CHANGELOG.md 2>/dev/null || git ls-files --others --exclude-standard | grep -q '^CHANGELOG.md$'; then
