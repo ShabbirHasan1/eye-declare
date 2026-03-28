@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+BUMP="${1:-}"
+
+if [[ ! "$BUMP" =~ ^(major|minor|patch)$ ]]; then
+  echo "Usage: scripts/release <major|minor|patch>"
+  exit 1
+fi
+
+# Generate changelog for the upcoming version
+git cliff --bump="$BUMP" -o CHANGELOG.md
+
+# If the changelog has uncommitted changes, bail so the user can commit first
+if ! git diff --quiet CHANGELOG.md 2>/dev/null || git ls-files --others --exclude-standard | grep -q '^CHANGELOG.md$'; then
+  echo "CHANGELOG.md has uncommitted changes."
+  echo "Please commit the changelog and re-run this script."
+  exit 1
+fi
+
+# Publish workspace crates (interactive confirmation via cargo-workspaces)
+cargo ws publish "$BUMP" --force "*"
+
+# Determine the tag that was just created
+TAG=$(git describe --tags --abbrev=0)
+
+# Get the changelog for the current release
+NOTES=$(git cliff --current)
+
+# Create a GitHub release
+gh release create "$TAG" --title "$TAG" --notes "$NOTES"
+
+echo "Released $TAG"
