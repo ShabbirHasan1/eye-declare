@@ -1,5 +1,7 @@
 # eye-declare
 
+[![Crates.io Version](https://img.shields.io/crates/v/eye_declare)](https://crates.io/crates/eye_declare) [![docs.rs](https://img.shields.io/docsrs/eye_declare)](https://docs.rs/eye_declare)
+
 A declarative inline TUI rendering library for Rust, built on [Ratatui](https://ratatui.rs).
 
 eye-declare provides a React-like component model for building terminal UIs that render **inline** — content grows into the terminal's native scrollback rather than taking over the full screen. Designed for CLI tools, AI assistants, and interactive prompts where output accumulates and earlier results should remain visible.
@@ -14,6 +16,14 @@ Coming changes:
 
 - [ ] More ergonomic "leaf" API
 - [ ] Improvements to height measurement and vertical layout
+
+## Installation
+
+Add to your project with:
+
+```bash
+cargo add eye_declare
+```
 
 ## Quick Start
 
