@@ -2,11 +2,33 @@ use proc_macro2::TokenStream;
 use quote::quote;
 use syn::{Ident, ItemFn, Token, parse2};
 
-/// Parsed arguments from `#[component(props = T, state = S, children = C)]`.
+/// Check if a type matches `&mut Hooks<T>` for some `T`.
+///
+/// Matches on the last path segment being `"Hooks"`, which is intentionally
+/// loose — it accepts any crate's `Hooks` type. In practice this is fine
+/// because the generated code calls `::eye_declare::Hooks` methods, so a
+/// mismatched type would produce a clear compile error in the generated impl.
+fn is_hooks_type(ty: &syn::Type) -> bool {
+    if let syn::Type::Reference(type_ref) = ty
+        && type_ref.mutability.is_some()
+        && let syn::Type::Path(type_path) = type_ref.elem.as_ref()
+    {
+        type_path
+            .path
+            .segments
+            .last()
+            .is_some_and(|seg| seg.ident == "Hooks")
+    } else {
+        false
+    }
+}
+
+/// Parsed arguments from `#[component(props = T, state = S, children = C, initial_state = expr)]`.
 struct ComponentArgs {
     props: Ident,
     state: Option<Ident>,
     children: Option<Ident>,
+    initial_state: Option<syn::Expr>,
 }
 
 impl syn::parse::Parse for ComponentArgs {
@@ -14,16 +36,31 @@ impl syn::parse::Parse for ComponentArgs {
         let mut props = None;
         let mut state = None;
         let mut children = None;
+        let mut initial_state = None;
+        let mut initial_state_key_span: Option<proc_macro2::Span> = None;
 
         while !input.is_empty() {
             let key: Ident = input.parse()?;
             input.parse::<Token![=]>()?;
-            let value: Ident = input.parse()?;
 
             match key.to_string().as_str() {
-                "props" => props = Some(value),
-                "state" => state = Some(value),
-                "children" => children = Some(value),
+                "initial_state" => {
+                    initial_state_key_span = Some(key.span());
+                    let expr: syn::Expr = input.parse()?;
+                    initial_state = Some(expr);
+                }
+                "props" => {
+                    let value: Ident = input.parse()?;
+                    props = Some(value);
+                }
+                "state" => {
+                    let value: Ident = input.parse()?;
+                    state = Some(value);
+                }
+                "children" => {
+                    let value: Ident = input.parse()?;
+                    children = Some(value);
+                }
                 other => {
                     return Err(syn::Error::new_spanned(
                         key,
@@ -39,10 +76,20 @@ impl syn::parse::Parse for ComponentArgs {
 
         let props = props.ok_or_else(|| input.error("#[component] requires `props = Type`"))?;
 
+        if let Some(span) = initial_state_key_span
+            && state.is_none()
+        {
+            return Err(syn::Error::new(
+                span,
+                "#[component] `initial_state` requires `state` to also be specified",
+            ));
+        }
+
         Ok(ComponentArgs {
             props,
             state,
             children,
+            initial_state,
         })
     }
 }
@@ -68,32 +115,24 @@ pub fn component_impl(attr: TokenStream, input: TokenStream) -> syn::Result<Toke
         .map(|s| quote! { #s })
         .unwrap_or_else(|| quote! { () });
 
-    // Detect parameters by name. Expected order:
+    // Detect parameters by type. Expected order:
     //   props: &PropsType          (always, any name)
     //   state: &StateType          (if state specified, any name)
-    //   hooks: &mut Hooks<State>   (optional, detected by name "hooks")
+    //   hooks: &mut Hooks<State>   (optional, detected by type &mut Hooks<T>)
     //   children: Elements         (if children specified, detected by name "children")
     let has_state = args.state.is_some();
     let has_children = args.children.is_some();
 
-    // Extract parameter names for validation
-    let param_names: Vec<String> = func
-        .sig
-        .inputs
-        .iter()
-        .filter_map(|arg| {
-            if let syn::FnArg::Typed(pat_type) = arg
-                && let syn::Pat::Ident(ident) = pat_type.pat.as_ref()
-            {
-                return Some(ident.ident.to_string());
-            }
-            None
-        })
-        .collect();
-    let param_count = param_names.len();
+    let param_count = func.sig.inputs.len();
 
-    // Detect hooks by scanning for a parameter named "hooks"
-    let has_hooks = param_names.iter().any(|n| n == "hooks");
+    // Detect hooks by type: &mut Hooks<T>
+    let has_hooks = func.sig.inputs.iter().any(|arg| {
+        if let syn::FnArg::Typed(pat_type) = arg {
+            is_hooks_type(&pat_type.ty)
+        } else {
+            false
+        }
+    });
 
     let expected = 1 + has_state as usize + has_hooks as usize + has_children as usize;
     if param_count != expected {
@@ -118,6 +157,19 @@ pub fn component_impl(attr: TokenStream, input: TokenStream) -> syn::Result<Toke
     }
 
     // Validate children parameter matches attribute declaration
+    let param_names: Vec<String> = func
+        .sig
+        .inputs
+        .iter()
+        .filter_map(|arg| {
+            if let syn::FnArg::Typed(pat_type) = arg
+                && let syn::Pat::Ident(ident) = pat_type.pat.as_ref()
+            {
+                return Some(ident.ident.to_string());
+            }
+            None
+        })
+        .collect();
     let has_children_param = param_names.iter().any(|n| n == "children");
     if has_children && !has_children_param {
         return Err(syn::Error::new_spanned(
@@ -160,6 +212,15 @@ pub fn component_impl(attr: TokenStream, input: TokenStream) -> syn::Result<Toke
             call_args.push(quote! { __children });
         }
         quote! { #func_name(#(#call_args),*) }
+    };
+
+    let initial_state_impl = match &args.initial_state {
+        Some(expr) => quote! {
+            fn initial_state(&self) -> Option<#state_type> {
+                Some(#expr)
+            }
+        },
+        None => quote! {},
     };
 
     // Generate lifecycle() only if hooks are used
@@ -213,6 +274,7 @@ pub fn component_impl(attr: TokenStream, input: TokenStream) -> syn::Result<Toke
         impl ::eye_declare::Component for #props_type {
             type State = #state_type;
 
+            #initial_state_impl
             #lifecycle_impl
             #view_impl
         }
