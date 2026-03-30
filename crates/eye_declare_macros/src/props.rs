@@ -5,7 +5,7 @@ use syn::{DeriveInput, Expr, Field, Fields, Meta, parse2};
 /// Implementation of the `#[props]` attribute macro.
 ///
 /// Translates `#[default(expr)]` on fields to `#[builder(default = expr, setter(into))]`
-/// and adds `#[derive(typed_builder::TypedBuilder)]` to the struct.
+/// and adds `#[derive(::eye_declare::TypedBuilder)]` to the struct.
 ///
 /// Fields without `#[default]` are required — the builder won't compile
 /// without them being set. Fields with `#[default(expr)]` are optional.
