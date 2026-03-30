@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 use ratatui_core::{buffer::Buffer, layout::Rect};
 
 use crate::component::{Component, EventResult, Tracked, VStack};
-use crate::context::{ContextMap, SavedContext};
+use crate::context::{ContextMap, ProvidedContexts, SavedContext};
 use crate::element::{ElementEntry, Elements};
 use crate::frame::Frame;
 use crate::node::{
@@ -34,6 +34,10 @@ pub struct Renderer {
     /// a scope, the previous focus is saved here so it can be restored
     /// when the scope is removed.
     saved_focus: HashMap<NodeId, Option<NodeId>>,
+    /// Set by `tick()` when any effect fires. Cleared after
+    /// `refresh_dirty_containers()`. Avoids an O(n) tree walk on
+    /// quiescent frames where no effects mutated state.
+    needs_refresh: bool,
 }
 
 impl Renderer {
@@ -53,6 +57,7 @@ impl Renderer {
             effects: HashMap::new(),
             context: ContextMap::new(),
             saved_focus: HashMap::new(),
+            needs_refresh: false,
         }
     }
 
@@ -81,7 +86,7 @@ impl Renderer {
     ///
     /// Note: this resets `layout` and `width_constraint` from the component's
     /// trait methods. When hooks override these (via `use_layout`/`use_width_constraint`),
-    /// `apply_lifecycle` must be called after this to restore the hook values.
+    /// `update_node` must be called after this to restore the hook values.
     /// Every current reconciliation path satisfies this contract.
     pub fn swap_component<C: Component>(&mut self, id: NodeId, component: C) {
         let layout = component.layout();
@@ -431,6 +436,9 @@ impl Renderer {
     /// ```
     pub fn rebuild(&mut self, parent: NodeId, elements: Elements) {
         self.reconcile_children(parent, elements.into_items());
+        // Full rebuild reconciles all dirty nodes — no need for the
+        // pre-render refresh pass to repeat that work.
+        self.needs_refresh = false;
     }
 
     /// Find a direct child of `parent` by its key.
@@ -560,6 +568,7 @@ impl Renderer {
             self.effects.insert(id, effects);
         }
 
+        self.needs_refresh = true;
         true
     }
 
@@ -673,13 +682,12 @@ impl Renderer {
                 self.nodes[old_id].parent = Some(parent);
                 self.nodes[old_id].width_constraint =
                     resolve_width_constraint(&self.nodes[old_id], entry.width_constraint);
+                self.nodes[old_id].has_slot = entry.children.is_some();
                 // Guarantee re-render after props update
                 self.nodes[old_id].force_dirty = true;
-                let provided = self.apply_lifecycle(old_id);
+                let (provided, resolved) = self.update_node(old_id, entry.children);
                 let saved = self.push_context(provided);
 
-                // Resolve children: component decides (slot = external children)
-                let resolved = self.resolve_children(old_id, entry.children);
                 if let Some(els) = resolved {
                     self.reconcile_children(old_id, els.into_items());
                 }
@@ -691,14 +699,13 @@ impl Renderer {
                 let id = entry.element.build(self, parent);
                 self.nodes[id].element_type_id = Some(entry.type_id);
                 self.nodes[id].key = entry.key;
+                self.nodes[id].has_slot = entry.children.is_some();
                 self.nodes[id].width_constraint =
                     resolve_width_constraint(&self.nodes[id], entry.width_constraint);
-                let provided = self.apply_lifecycle(id);
+                let (provided, resolved) = self.update_node(id, entry.children);
                 self.fire_mount(id);
                 let saved = self.push_context(provided);
 
-                // Resolve children: component decides (slot = external children)
-                let resolved = self.resolve_children(id, entry.children);
                 if let Some(els) = resolved {
                     self.build_elements(id, els);
                 }
@@ -733,13 +740,13 @@ impl Renderer {
             let node_id = entry.element.build(self, parent);
             self.nodes[node_id].element_type_id = Some(entry.type_id);
             self.nodes[node_id].key = entry.key;
+            self.nodes[node_id].has_slot = entry.children.is_some();
             self.nodes[node_id].width_constraint =
                 resolve_width_constraint(&self.nodes[node_id], entry.width_constraint);
-            let provided = self.apply_lifecycle(node_id);
+            let (provided, resolved) = self.update_node(node_id, entry.children);
             self.fire_mount(node_id);
             let saved = self.push_context(provided);
 
-            let resolved = self.resolve_children(node_id, entry.children);
             if let Some(els) = resolved {
                 self.build_elements(node_id, els);
             }
@@ -748,37 +755,27 @@ impl Renderer {
         }
     }
 
-    /// Resolve children for a node by calling `view()`.
+    /// Run the component's combined update: collect hooks and produce
+    /// the element tree in a single call.
     ///
-    /// Passes slot children (from `add_with_children`) to the component's
-    /// `view()` method. Returns `Some(elements)` if the view produced
-    /// children, `None` if empty (leaf node).
-    fn resolve_children(&self, id: NodeId, slot: Option<Elements>) -> Option<Elements> {
-        let node = &self.nodes[id];
-        let state = node.state.inner_as_any();
+    /// Returns provided context values (for descendants) and resolved
+    /// children elements. Applies lifecycle output (effects, hook
+    /// overrides) to the node.
+    fn update_node(
+        &mut self,
+        id: NodeId,
+        slot: Option<Elements>,
+    ) -> (ProvidedContexts, Option<Elements>) {
         let children = slot.unwrap_or_default();
-        let result = node.component.view_erased(state, children);
-        // Return Some even when empty if the node already has children,
-        // so reconcile_children can tombstone them on transition to empty.
-        if result.is_empty() && node.children.is_empty() {
-            None
-        } else {
-            Some(result)
-        }
-    }
 
-    /// Run the component's lifecycle method and apply resulting effects.
-    ///
-    /// Context consumers declared via `use_context` are executed
-    /// immediately with the current context map. Returns any context
-    /// values the component provides for its descendants.
-    fn apply_lifecycle(&mut self, id: NodeId) -> Vec<(TypeId, Box<dyn Any + Send + Sync>)> {
-        let output = {
+        let (output, result) = {
             let context = &self.context;
             let node = &mut self.nodes[id];
             node.component
-                .lifecycle_erased(node.state.as_any_mut(), context)
+                .update_erased(node.state.as_any_mut(), context, children)
         };
+
+        // Apply lifecycle output
         if output.effects.is_empty() {
             self.effects.remove(&id);
         } else {
@@ -796,7 +793,94 @@ impl Renderer {
         if let Some(wc) = output.width_constraint {
             self.nodes[id].width_constraint = wc;
         }
-        output.provided
+
+        // Return Some even when empty if the node already has children,
+        // so reconcile_children can tombstone them on transition to empty.
+        let elements = if result.is_empty() && self.nodes[id].children.is_empty() {
+            None
+        } else {
+            Some(result)
+        };
+
+        (output.provided, elements)
+    }
+
+    /// Re-reconcile dirty view-based nodes whose element tree depends on
+    /// their own state (not slot children from a parent).
+    ///
+    /// Called before measure/render so that `#[component]` functions that
+    /// produce children based on state (e.g., Spinner returning Canvas)
+    /// get fresh children after state changes from effects.
+    ///
+    /// Short-circuits when no effects have fired since the last render
+    /// (`needs_refresh` flag), avoiding an O(n) tree walk on quiescent
+    /// frames.
+    ///
+    /// **Limitation:** ancestor context values are not available during
+    /// this pass. Components that combine `use_interval` (or other
+    /// state-mutating effects) with `use_context` will see `None` for
+    /// context reads here. A full `rebuild()` restores correct context.
+    fn refresh_dirty_views(&mut self) {
+        if !self.needs_refresh {
+            return;
+        }
+        self.needs_refresh = false;
+
+        // Collect in post-order (descendants before ancestors) so that
+        // if a parent's re-reconciliation tombstones a child, the child
+        // was already processed.
+        let dirty: Vec<NodeId> = self.collect_dirty_views(self.root);
+        for id in dirty {
+            // Guard against stale NodeIds: a prior iteration may have
+            // tombstoned this node as a side effect of reconciling an
+            // ancestor.
+            if !self.nodes.is_live(id) {
+                continue;
+            }
+            let (provided, resolved) = self.update_node(id, None);
+            let saved = self.push_context(provided);
+            if let Some(els) = resolved {
+                self.reconcile_children(id, els.into_items());
+            }
+            self.pop_context(saved);
+        }
+    }
+
+    /// Collect view-based nodes that are dirty and safe to re-reconcile.
+    ///
+    /// Returns nodes in **post-order** (descendants before ancestors) so
+    /// callers can safely process the list front-to-back without stale IDs.
+    ///
+    /// A node is safe to re-reconcile when it was built through the
+    /// element tree (has element_type_id), was NOT built with slot
+    /// children from a parent, is not frozen, and its state is dirty.
+    /// The `is_container()` check is intentionally omitted — a component
+    /// that initially produces no children can transition to producing
+    /// children when its state changes.
+    fn collect_dirty_views(&self, id: NodeId) -> Vec<NodeId> {
+        let mut result = Vec::new();
+        let children: Vec<NodeId> = self.nodes[id].children.clone();
+        for child_id in children {
+            result.extend(self.collect_dirty_views(child_id));
+            let node = &self.nodes[child_id];
+            if !node.frozen
+                && node.element_type_id.is_some()
+                && !node.has_slot
+                && node.state.is_dirty()
+            {
+                result.push(child_id);
+            }
+        }
+        result
+    }
+
+    /// Test helper: run update_node for lifecycle side effects only.
+    /// Used by focus scope tests that need hooks applied on imperatively
+    /// built nodes. Returns provided context values.
+    #[cfg(test)]
+    fn apply_lifecycle(&mut self, id: NodeId) -> Vec<(TypeId, Box<dyn Any + Send + Sync>)> {
+        let (provided, _) = self.update_node(id, None);
+        provided
     }
 
     /// Tombstone a node and all its descendants without touching the
@@ -875,10 +959,7 @@ impl Renderer {
 
     /// Push provided context values onto the context map, saving
     /// previous values for later restoration.
-    fn push_context(
-        &mut self,
-        provided: Vec<(TypeId, Box<dyn Any + Send + Sync>)>,
-    ) -> SavedContext {
+    fn push_context(&mut self, provided: ProvidedContexts) -> SavedContext {
         let mut saved = Vec::with_capacity(provided.len());
         for (type_id, value) in provided {
             let old = self.context.insert(type_id, value);
@@ -927,7 +1008,14 @@ impl Renderer {
     /// Render the component tree into a Frame.
     ///
     /// Recursively measures and renders from the root.
+    ///
+    /// Before measuring, re-reconciles any dirty container nodes whose
+    /// element tree depends on their own state (not slot children). This
+    /// ensures `#[component]` functions that return Canvas or other
+    /// elements based on state produce fresh children after state changes
+    /// from effects like `use_interval`.
     pub fn render(&mut self) -> Frame {
+        self.refresh_dirty_views();
         let total_height = self.measure_height(self.root, self.width);
 
         if total_height == 0 || self.width == 0 {
@@ -2974,6 +3062,39 @@ mod tests {
             .key("s");
         r.rebuild(container, els);
         assert!(!r.has_active());
+    }
+
+    #[test]
+    fn spinner_animates_after_tick_without_rebuild() {
+        // After wave 2, Spinner returns a Canvas child. Verify that
+        // tick + render (without explicit rebuild) still shows the
+        // updated animation frame.
+        let mut r = Renderer::new(30);
+        let container = r.push(VStack);
+
+        let mut els = Elements::new();
+        els.add(crate::components::spinner::Spinner::new("Loading..."))
+            .key("s");
+        r.rebuild(container, els);
+
+        // Initial render: frame 0
+        let frame = r.render();
+        let first_symbol = frame.buffer()[(0, 0)].symbol().to_string();
+        assert_eq!(first_symbol, "⠋"); // FRAMES[0]
+
+        // Simulate enough time passing for the interval to fire
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        let ticked = r.tick();
+        assert!(ticked, "interval should have fired");
+
+        // Render again without rebuild — refresh_dirty_containers
+        // should re-reconcile the Spinner and produce a new Canvas
+        let frame2 = r.render();
+        let second_symbol = frame2.buffer()[(0, 0)].symbol().to_string();
+        assert_ne!(
+            second_symbol, first_symbol,
+            "spinner should have advanced to a new frame"
+        );
     }
 
     // --- Mount/Unmount lifecycle tests ---
