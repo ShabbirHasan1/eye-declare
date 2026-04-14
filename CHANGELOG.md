@@ -1,3 +1,8 @@
+## [0.4.2](https://github.com/atuinsh/eye-declare/compare/v0.4.1..v0.4.2) - 2026-04-14
+
+### 🐛 Bug Fixes
+
+- Drain pending messages on exit so handle.fetch() succeeds ([#28](https://github.com/atuinsh/eye-declare/issues/28)) - ([83b69f6](https://github.com/atuinsh/eye-declare/commit/83b69f69044252053f9d164dc7db8ff74af6c97b))
 ## [0.4.1](https://github.com/atuinsh/eye-declare/compare/v0.4.0..v0.4.1) - 2026-04-14
 
 ### 🐛 Bug Fixes
