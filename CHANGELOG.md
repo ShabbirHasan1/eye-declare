@@ -1,3 +1,8 @@
+## [0.5.0](https://github.com/atuinsh/eye-declare/compare/v0.4.3..v0.5.0) - 2026-04-23
+
+### ⛰️ Features
+
+- Add Handle::update_tracked for conditional rebuilds ([#32](https://github.com/atuinsh/eye-declare/issues/32)) - ([bfabc48](https://github.com/atuinsh/eye-declare/commit/bfabc4863967c2d4b7f2fcc1b98f1338a7171f8a))
 ## [0.4.3](https://github.com/atuinsh/eye-declare/compare/v0.4.2..v0.4.3) - 2026-04-15
 
 ### 🐛 Bug Fixes
