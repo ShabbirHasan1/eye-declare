@@ -184,7 +184,7 @@ dependencies = [
 
 [[package]]
 name = "eye_declare"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "crossterm",
  "eye_declare_macros",
@@ -199,7 +199,7 @@ dependencies = [
 
 [[package]]
 name = "eye_declare_macros"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "proc-macro2",
  "quote",
